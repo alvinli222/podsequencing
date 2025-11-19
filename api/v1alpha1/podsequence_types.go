@@ -18,20 +18,12 @@ type PodGroup struct {
 
 // PodSequenceSpec defines the desired state of PodSequence
 type PodSequenceSpec struct {
-	// Sequence is an ordered list of pod names that should be scheduled sequentially
-	// Each pod in the list will only have its scheduling gate removed after the previous
-	// pod becomes ready
-	// NOTE: This field is deprecated in favor of PodGroups for more flexibility
-	// +optional
-	Sequence []string `json:"sequence,omitempty"`
-
 	// PodGroups is an ordered list of pod groups that should be scheduled sequentially
 	// Each group contains one or more pods. All pods in a group will have their scheduling
 	// gates removed together, and the next group will only start after all pods in the
 	// current group are ready
 	// +kubebuilder:validation:MinItems=1
-	// +optional
-	PodGroups []PodGroup `json:"podGroups,omitempty"`
+	PodGroups []PodGroup `json:"podGroups"`
 
 	// Namespace is the namespace where the pods are located
 	// If not specified, defaults to the namespace of the PodSequence resource
@@ -89,8 +81,7 @@ const (
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=podseq
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
-// +kubebuilder:printcolumn:name="Current",type=integer,JSONPath=`.status.currentIndex`
-// +kubebuilder:printcolumn:name="Total",type=integer,JSONPath=`.spec.sequence[*]`
+// +kubebuilder:printcolumn:name="CurrentGroup",type=integer,JSONPath=`.status.currentIndex`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // PodSequence is the Schema for the podsequences API

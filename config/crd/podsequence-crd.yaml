@@ -71,14 +71,8 @@ spec:
                 description: SchedulingGateName is the name of the scheduling gate
                   to manage Defaults to "podsequence.example.com/sequence-gate"
                 type: string
-              sequence:
-                description: Sequence is an ordered list of pod names that should
-                  be scheduled sequentially Each pod in the list will only have its
-                  scheduling gate removed after the previous pod becomes ready NOTE
-                  This field is deprecated in favor of PodGroups for more flexibility
-                items:
-                  type: string
-                type: array
+            required:
+            - podGroups
             type: object
           status:
             description: PodSequenceStatus defines the observed state of PodSequence
@@ -195,7 +189,7 @@ spec:
     - name: Phase
       type: string
       jsonPath: .status.phase
-    - name: Current
+    - name: CurrentGroup
       type: integer
       jsonPath: .status.currentIndex
     - name: Age

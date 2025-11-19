@@ -4,10 +4,7 @@ A Kubernetes native controller that leverages the [Pod Scheduling Readiness](htt
 
 ## Overview
 
-The Pod Sequence Controller allows you to define an ordered sequence of pods or **pod groups** where scheduling gates are managed based on readiness. This enables:
-
-- **Sequential Pod Startup**: Each pod waits for the previous pod to be ready
-- **Pod Groups**: Multiple pods in a tier that start together, with the next tier waiting for ALL pods in the current tier to be ready
+The Pod Sequence Controller allows you to define ordered **pod groups** where scheduling gates are managed based on readiness. Multiple pods in a tier start together, with the next tier waiting for ALL pods in the current tier to be ready.
 
 This is useful for scenarios such as:
 
@@ -15,29 +12,21 @@ This is useful for scenarios such as:
 - Multi-tier application startup sequences (database → application → frontend)
 - Ordered data processing pipelines
 - Stateful application dependencies with high availability
+- Any scenario requiring sequential startup (single-pod groups work too!)
 
 ## How It Works
 
-### Single Pod Sequence (Legacy Mode)
-
 1. **Create Pods with Scheduling Gates**: Define your pods with a scheduling gate (e.g., `podsequence.example.com/sequence-gate`)
-2. **Define a PodSequence Resource**: Create a `PodSequence` custom resource that specifies the order in which pods should become ready
-3. **Controller Manages the Sequence**: The controller monitors pod readiness and removes scheduling gates in order:
-   - Pod 1's scheduling gate is removed immediately
-   - Once Pod 1 is ready, Pod 2's scheduling gate is removed
-   - Once Pod 2 is ready, Pod 3's scheduling gate is removed
-   - And so on...
-
-### Pod Groups (Recommended)
-
-1. **Define Pod Groups**: Organize your pods into logical groups (tiers)
-2. **All pods in a group start together**: When a group's turn comes, all its pods have their scheduling gates removed simultaneously
-3. **Next group waits for ALL pods**: The next group only starts when **all pods** in the current group are ready
+2. **Define Pod Groups**: Organize your pods into logical groups (tiers) in a `PodSequence` resource
+3. **All pods in a group start together**: When a group's turn comes, all its pods have their scheduling gates removed simultaneously
+4. **Next group waits for ALL pods**: The next group only starts when **all pods** in the current group are ready
 
 **Example**: 
 - **Group 1** (Database): pod-1, pod-2 → Both start immediately
 - **Group 2** (Application): pod-3, pod-4 → Start only after pod-1 **AND** pod-2 are ready
 - **Group 3** (Frontend): pod-5 → Starts only after pod-3 **AND** pod-4 are ready
+
+**Note**: For sequential single-pod startup, simply create groups with one pod each!
 
 ## Installation
 
@@ -72,7 +61,7 @@ This is useful for scenarios such as:
 
 ### Basic Example
 
-Create three pods with scheduling gates and a PodSequence to manage their order:
+Create three pods with scheduling gates and a PodSequence with pod groups:
 
 ```yaml
 apiVersion: scheduling.example.com/v1alpha1
@@ -81,10 +70,16 @@ metadata:
   name: example-sequence
   namespace: default
 spec:
-  sequence:
-    - pod-1
-    - pod-2
-    - pod-3
+  podGroups:
+    - name: "Pod 1"
+      pods:
+        - pod-1
+    - name: "Pod 2"
+      pods:
+        - pod-2
+    - name: "Pod 3"
+      pods:
+        - pod-3
 ---
 apiVersion: v1
 kind: Pod
@@ -200,7 +195,7 @@ See `config/samples/podgroups-example.yaml` for the complete example.
 
 ### Database Initialization Example
 
-A more realistic example showing database initialization sequence:
+A sequential single-pod example using pod groups:
 
 ```yaml
 apiVersion: scheduling.example.com/v1alpha1
@@ -209,11 +204,19 @@ metadata:
   name: database-init-sequence
   namespace: default
 spec:
-  sequence:
-    - init-db      # Initialize schema
-    - database     # Start database
-    - migrate      # Run migrations
-    - app          # Start application
+  podGroups:
+    - name: "Initialize Schema"
+      pods:
+        - init-db
+    - name: "Start Database"
+      pods:
+        - database
+    - name: "Run Migrations"
+      pods:
+        - migrate
+    - name: "Start Application"
+      pods:
+        - app
   schedulingGateName: podsequence.example.com/db-init-gate
 ```
 
@@ -225,12 +228,9 @@ See `config/samples/database-init-example.yaml` for the complete example.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `podGroups` | `[]PodGroup` | No* | Ordered list of pod groups (recommended) |
-| `sequence` | `[]string` | No* | Ordered list of pod names (legacy mode) |
+| `podGroups` | `[]PodGroup` | Yes | Ordered list of pod groups |
 | `namespace` | `string` | No | Namespace where pods are located (defaults to PodSequence namespace) |
 | `schedulingGateName` | `string` | No | Name of the scheduling gate to manage (default: `podsequence.example.com/sequence-gate`) |
-
-*Either `podGroups` or `sequence` must be specified. If both are provided, `podGroups` takes precedence.
 
 #### PodGroup Fields
 

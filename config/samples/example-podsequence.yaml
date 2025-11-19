@@ -1,14 +1,21 @@
-# Example 1: Basic three-pod sequence
+# Example 1: Basic three-pod sequence using pod groups
+# Each pod is in its own group, providing sequential startup
 apiVersion: scheduling.example.com/v1alpha1
 kind: PodSequence
 metadata:
   name: example-sequence
   namespace: default
 spec:
-  sequence:
-    - pod-1
-    - pod-2
-    - pod-3
+  podGroups:
+    - name: "Pod 1"
+      pods:
+        - pod-1
+    - name: "Pod 2"
+      pods:
+        - pod-2
+    - name: "Pod 3"
+      pods:
+        - pod-3
 ---
 # Pod 1 - Will be scheduled first
 apiVersion: v1

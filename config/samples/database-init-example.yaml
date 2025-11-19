@@ -11,11 +11,19 @@ metadata:
   name: database-init-sequence
   namespace: default
 spec:
-  sequence:
-    - init-db
-    - database
-    - migrate
-    - app
+  podGroups:
+    - name: "Initialize Schema"
+      pods:
+        - init-db
+    - name: "Start Database"
+      pods:
+        - database
+    - name: "Run Migrations"
+      pods:
+        - migrate
+    - name: "Start Application"
+      pods:
+        - app
   schedulingGateName: podsequence.example.com/db-init-gate
 ---
 # Step 1: Initialize database schema

@@ -84,18 +84,7 @@ func (r *PodSequenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
-	// Route to appropriate reconciliation logic
-	if usePodGroups {
-		return r.reconcilePodGroups(ctx, podSeq, targetNamespace, schedulingGateName)
-	}
-	return r.reconcileLegacySequence(ctx, podSeq, targetNamespace, schedulingGateName)
-}
-
-}
-
-// reconcilePodGroups handles the reconciliation logic for PodGroups
-func (r *PodSequenceReconciler) reconcilePodGroups(ctx context.Context, podSeq *schedulingv1alpha1.PodSequence, targetNamespace, schedulingGateName string) (ctrl.Result, error) {
-	log := log.FromContext(ctx)
+	// Process pod groups
 
 	currentIndex := podSeq.Status.CurrentIndex
 	if currentIndex >= len(podSeq.Spec.PodGroups) {
@@ -212,109 +201,6 @@ func (r *PodSequenceReconciler) reconcilePodGroups(ctx context.Context, podSeq *
 	log.Info("Not all pods in group ready yet, waiting", "groupName", groupName, "ready", readyCount, "total", len(currentGroup.Pods))
 	podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
 	podSeq.Status.Message = fmt.Sprintf("Waiting for all pods in %s to become ready (%d/%d ready)", groupName, readyCount, len(currentGroup.Pods))
-	if err := r.Status().Update(ctx, podSeq); err != nil {
-		log.Error(err, "Failed to update status")
-		return ctrl.Result{}, err
-	}
-	return ctrl.Result{RequeueAfter: RequeueDelay}, nil
-}
-
-// reconcileLegacySequence handles the original single-pod sequence logic
-func (r *PodSequenceReconciler) reconcileLegacySequence(ctx context.Context, podSeq *schedulingv1alpha1.PodSequence, targetNamespace, schedulingGateName string) (ctrl.Result, error) {
-	log := log.FromContext(ctx)
-
-	// Process the sequence
-	currentIndex := podSeq.Status.CurrentIndex
-	if currentIndex >= len(podSeq.Spec.Sequence) {
-		// All pods processed
-		podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseCompleted
-		podSeq.Status.Message = "All pods in sequence are ready"
-		r.Recorder.Event(podSeq, corev1.EventTypeNormal, "Completed", "All pods in sequence are ready")
-		if err := r.Status().Update(ctx, podSeq); err != nil {
-			log.Error(err, "Failed to update status to completed")
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
-	}
-
-	podName := podSeq.Spec.Sequence[currentIndex]
-	log.Info("Processing pod", "index", currentIndex, "podName", podName)
-
-	// Get the pod
-	pod := &corev1.Pod{}
-	podKey := types.NamespacedName{Namespace: targetNamespace, Name: podName}
-	if err := r.Get(ctx, podKey, pod); err != nil {
-		if errors.IsNotFound(err) {
-			podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseFailed
-			podSeq.Status.Message = fmt.Sprintf("Pod %s not found in namespace %s", podName, targetNamespace)
-			r.Recorder.Event(podSeq, corev1.EventTypeWarning, "PodNotFound", podSeq.Status.Message)
-			if err := r.Status().Update(ctx, podSeq); err != nil {
-				log.Error(err, "Failed to update status")
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{}, nil
-		}
-		log.Error(err, "Failed to get pod", "podName", podName)
-		return ctrl.Result{}, err
-	}
-
-	// Check if this is the first pod or if previous pod is ready
-	if currentIndex == 0 {
-		// First pod - remove scheduling gate
-		if err := r.removeSchedulingGate(ctx, pod, schedulingGateName); err != nil {
-			log.Error(err, "Failed to remove scheduling gate from first pod", "podName", podName)
-			return ctrl.Result{}, err
-		}
-		r.Recorder.Event(podSeq, corev1.EventTypeNormal, "GateRemoved", fmt.Sprintf("Removed scheduling gate from first pod: %s", podName))
-	} else {
-		// Check if previous pod is ready
-		prevPodName := podSeq.Spec.Sequence[currentIndex-1]
-		prevPod := &corev1.Pod{}
-		prevPodKey := types.NamespacedName{Namespace: targetNamespace, Name: prevPodName}
-		if err := r.Get(ctx, prevPodKey, prevPod); err != nil {
-			log.Error(err, "Failed to get previous pod", "podName", prevPodName)
-			return ctrl.Result{}, err
-		}
-
-		if !isPodReady(prevPod) {
-			// Previous pod not ready yet, requeue
-			log.Info("Previous pod not ready yet, waiting", "prevPodName", prevPodName)
-			podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
-			podSeq.Status.Message = fmt.Sprintf("Waiting for pod %s to become ready", prevPodName)
-			if err := r.Status().Update(ctx, podSeq); err != nil {
-				log.Error(err, "Failed to update status")
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{RequeueAfter: RequeueDelay}, nil
-		}
-
-		// Previous pod is ready, remove scheduling gate from current pod
-		if err := r.removeSchedulingGate(ctx, pod, schedulingGateName); err != nil {
-			log.Error(err, "Failed to remove scheduling gate", "podName", podName)
-			return ctrl.Result{}, err
-		}
-		r.Recorder.Event(podSeq, corev1.EventTypeNormal, "GateRemoved", fmt.Sprintf("Removed scheduling gate from pod: %s (previous pod %s is ready)", podName, prevPodName))
-	}
-
-	// Check if current pod is ready
-	if isPodReady(pod) {
-		// Current pod is ready, move to next
-		podSeq.Status.CurrentIndex++
-		podSeq.Status.ProcessedPods = append(podSeq.Status.ProcessedPods, podName)
-		podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
-		podSeq.Status.Message = fmt.Sprintf("Pod %s is ready, moving to next", podName)
-		if err := r.Status().Update(ctx, podSeq); err != nil {
-			log.Error(err, "Failed to update status")
-			return ctrl.Result{}, err
-		}
-		r.Recorder.Event(podSeq, corev1.EventTypeNormal, "PodReady", fmt.Sprintf("Pod %s is ready", podName))
-		return ctrl.Result{Requeue: true}, nil
-	}
-
-	// Current pod not ready yet, wait
-	log.Info("Current pod not ready yet, waiting", "podName", podName)
-	podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
-	podSeq.Status.Message = fmt.Sprintf("Waiting for pod %s to become ready", podName)
 	if err := r.Status().Update(ctx, podSeq); err != nil {
 		log.Error(err, "Failed to update status")
 		return ctrl.Result{}, err
