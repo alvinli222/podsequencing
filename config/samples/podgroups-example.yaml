@@ -1,0 +1,146 @@
+# Example: Pod Groups with multiple pods per tier
+# This example demonstrates how to use PodGroups to schedule multiple pods in tiers
+# Pod Group 1 (pod-1, pod-2) will start first
+# Pod Group 2 (pod-3, pod-4) will only start after BOTH pods in Group 1 are ready
+# Pod Group 3 (pod-5) will only start after BOTH pods in Group 2 are ready
+
+apiVersion: scheduling.example.com/v1alpha1
+kind: PodSequence
+metadata:
+  name: podgroups-example
+  namespace: default
+spec:
+  podGroups:
+    - name: "Database Layer"
+      pods:
+        - pod-1
+        - pod-2
+    - name: "Application Layer"
+      pods:
+        - pod-3
+        - pod-4
+    - name: "Frontend Layer"
+      pods:
+        - pod-5
+---
+# Pod Group 1: Database Layer - These pods will start first
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-1
+  namespace: default
+  labels:
+    app: database
+    tier: db-primary
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: postgres
+    image: postgres:15
+    env:
+    - name: POSTGRES_PASSWORD
+      value: example
+    ports:
+    - containerPort: 5432
+    readinessProbe:
+      tcpSocket:
+        port: 5432
+      initialDelaySeconds: 10
+      periodSeconds: 5
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-2
+  namespace: default
+  labels:
+    app: database
+    tier: db-replica
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: postgres
+    image: postgres:15
+    env:
+    - name: POSTGRES_PASSWORD
+      value: example
+    ports:
+    - containerPort: 5432
+    readinessProbe:
+      tcpSocket:
+        port: 5432
+      initialDelaySeconds: 10
+      periodSeconds: 5
+---
+# Pod Group 2: Application Layer - Will start after both DB pods are ready
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-3
+  namespace: default
+  labels:
+    app: backend
+    tier: app-server-1
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: app
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+    readinessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 5
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-4
+  namespace: default
+  labels:
+    app: backend
+    tier: app-server-2
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: app
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+    readinessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 5
+---
+# Pod Group 3: Frontend Layer - Will start after both App pods are ready
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-5
+  namespace: default
+  labels:
+    app: frontend
+    tier: web
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: frontend
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+    readinessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 5

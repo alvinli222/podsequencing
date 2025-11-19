@@ -1,0 +1,203 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: podsequences.scheduling.example.com
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.12.0
+spec:
+  group: scheduling.example.com
+  names:
+    kind: PodSequence
+    listKind: PodSequenceList
+    plural: podsequences
+    shortNames:
+    - podseq
+    singular: podsequence
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: PodSequence is the Schema for the podsequences API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: PodSequenceSpec defines the desired state of PodSequence
+            properties:
+              namespace:
+                description: Namespace is the namespace where the pods are located
+                  If not specified, defaults to the namespace of the PodSequence
+                  resource
+                type: string
+              podGroups:
+                description: PodGroups is an ordered list of pod groups that should
+                  be scheduled sequentially Each group contains one or more pods.
+                  All pods in a group will have their scheduling gates removed together,
+                  and the next group will only start after all pods in the current
+                  group are ready
+                items:
+                  description: PodGroup represents a group of pods that should start
+                    together
+                  properties:
+                    name:
+                      description: Name is an optional name for the pod group (for
+                        identification purposes)
+                      type: string
+                    pods:
+                      description: Pods is the list of pod names in this group All
+                        pods in the group will have their scheduling gates removed
+                        together
+                      items:
+                        type: string
+                      minItems: 1
+                      type: array
+                  required:
+                  - pods
+                  type: object
+                minItems: 1
+                type: array
+              schedulingGateName:
+                description: SchedulingGateName is the name of the scheduling gate
+                  to manage Defaults to "podsequence.example.com/sequence-gate"
+                type: string
+              sequence:
+                description: Sequence is an ordered list of pod names that should
+                  be scheduled sequentially Each pod in the list will only have its
+                  scheduling gate removed after the previous pod becomes ready NOTE
+                  This field is deprecated in favor of PodGroups for more flexibility
+                items:
+                  type: string
+                type: array
+            type: object
+          status:
+            description: PodSequenceStatus defines the observed state of PodSequence
+            properties:
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the PodSequence's state
+                items:
+                  description: "Condition contains details for one aspect of the current
+                    state of this API Resource. --- This struct is intended for direct
+                    use as an array at the field path .status.conditions.  For example,
+                    \n type FooStatus struct{ // Represents the observations of a
+                    foo's current state. // Known .status.conditions.type are: \"Available\",
+                    \"Progressing\", and \"Degraded\" // +patchMergeKey=type // +patchStrategy=merge
+                    // +listType=map // +listMapKey=type Conditions []metav1.Condition
+                    `json:\"conditions,omitempty\" patchStrategy:\"merge\" patchMergeKey:\"type\"
+                    protobuf:\"bytes,1,rep,name=conditions\"` \n // other fields }"
+                  properties:
+                    lastTransitionTime:
+                      description: lastTransitionTime is the last time the condition
+                        transitioned from one status to another. This should be when
+                        the underlying condition changed.  If that is not known, then
+                        using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: message is a human readable message indicating
+                        details about the transition. This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: observedGeneration represents the .metadata.generation
+                        that the condition was set based upon. For instance, if .metadata.generation
+                        is currently 12, but the .status.conditions[x].observedGeneration
+                        is 9, the condition is out of date with respect to the current
+                        state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: reason contains a programmatic identifier indicating
+                        the reason for the condition's last transition. Producers
+                        of specific condition types may define expected values and
+                        meanings for this field, and whether the values are considered
+                        a guaranteed API. The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        --- Many .condition.type values are consistent across resources
+                        like Available, but because arbitrary conditions can be useful
+                        (see .node.status.conditions), the ability to deconflict is
+                        important. The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              currentGroupPods:
+                description: CurrentGroupPods is a list of pod names in the current
+                  group being processed
+                items:
+                  type: string
+                type: array
+              currentIndex:
+                description: CurrentIndex is the index in the sequence that is currently
+                  being processed For PodGroups, this refers to the current group
+                  index
+                type: integer
+              message:
+                description: Message provides additional information about the current
+                  state
+                type: string
+              phase:
+                description: 'Phase indicates the current phase of the sequence Possible
+                  values: Pending, InProgress, Completed, Failed'
+                type: string
+              processedPods:
+                description: ProcessedPods is a list of pod names that have been successfully
+                  processed
+                items:
+                  type: string
+                type: array
+              readyPodsInCurrentGroup:
+                description: ReadyPodsInCurrentGroup is the count of ready pods in
+                  the current group
+                type: integer
+            required:
+            - currentIndex
+            - phase
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - name: Phase
+      type: string
+      jsonPath: .status.phase
+    - name: Current
+      type: integer
+      jsonPath: .status.currentIndex
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp

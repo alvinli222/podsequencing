@@ -1,0 +1,124 @@
+# Example: Database initialization sequence
+# This example shows a typical use case where you need to:
+# 1. Initialize a database schema (init-db pod)
+# 2. Start the main database (database pod)
+# 3. Run migrations (migrate pod)
+# 4. Start the application (app pod)
+
+apiVersion: scheduling.example.com/v1alpha1
+kind: PodSequence
+metadata:
+  name: database-init-sequence
+  namespace: default
+spec:
+  sequence:
+    - init-db
+    - database
+    - migrate
+    - app
+  schedulingGateName: podsequence.example.com/db-init-gate
+---
+# Step 1: Initialize database schema
+apiVersion: v1
+kind: Pod
+metadata:
+  name: init-db
+  namespace: default
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/db-init-gate
+  restartPolicy: OnFailure
+  containers:
+  - name: init
+    image: postgres:15
+    command:
+    - sh
+    - -c
+    - |
+      echo "Initializing database schema..."
+      sleep 5
+      echo "Schema initialized"
+    readinessProbe:
+      exec:
+        command:
+        - sh
+        - -c
+        - "test -f /tmp/done || touch /tmp/done"
+      initialDelaySeconds: 1
+      periodSeconds: 2
+---
+# Step 2: Start main database
+apiVersion: v1
+kind: Pod
+metadata:
+  name: database
+  namespace: default
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/db-init-gate
+  containers:
+  - name: postgres
+    image: postgres:15
+    env:
+    - name: POSTGRES_PASSWORD
+      value: example
+    ports:
+    - containerPort: 5432
+    readinessProbe:
+      exec:
+        command:
+        - pg_isready
+        - -U
+        - postgres
+      initialDelaySeconds: 10
+      periodSeconds: 5
+---
+# Step 3: Run migrations
+apiVersion: v1
+kind: Pod
+metadata:
+  name: migrate
+  namespace: default
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/db-init-gate
+  restartPolicy: OnFailure
+  containers:
+  - name: migrate
+    image: postgres:15
+    command:
+    - sh
+    - -c
+    - |
+      echo "Running database migrations..."
+      sleep 3
+      echo "Migrations complete"
+    readinessProbe:
+      exec:
+        command:
+        - sh
+        - -c
+        - "test -f /tmp/done || touch /tmp/done"
+      initialDelaySeconds: 1
+      periodSeconds: 2
+---
+# Step 4: Start application
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app
+  namespace: default
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/db-init-gate
+  containers:
+  - name: app
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+    readinessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 5

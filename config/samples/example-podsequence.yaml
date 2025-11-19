@@ -1,0 +1,74 @@
+# Example 1: Basic three-pod sequence
+apiVersion: scheduling.example.com/v1alpha1
+kind: PodSequence
+metadata:
+  name: example-sequence
+  namespace: default
+spec:
+  sequence:
+    - pod-1
+    - pod-2
+    - pod-3
+---
+# Pod 1 - Will be scheduled first
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-1
+  namespace: default
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: nginx
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+    readinessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 5
+---
+# Pod 2 - Will be scheduled after pod-1 is ready
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-2
+  namespace: default
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: nginx
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+    readinessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 5
+---
+# Pod 3 - Will be scheduled after pod-2 is ready
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-3
+  namespace: default
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: nginx
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+    readinessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 5
