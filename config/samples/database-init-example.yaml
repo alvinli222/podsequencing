@@ -4,6 +4,7 @@
 # 2. Start the main database (database pod)
 # 3. Run migrations (migrate pod)
 # 4. Start the application (app pod)
+# Uses Cluster scope for strict sequential workflow
 
 apiVersion: scheduling.example.com/v1alpha1
 kind: PodSequence
@@ -11,6 +12,7 @@ metadata:
   name: database-init-sequence
   namespace: default
 spec:
+  scope: Cluster  # Sequential workflow across cluster
   podGroups:
     - name: "Initialize Schema"
       pods:

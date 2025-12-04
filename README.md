@@ -4,29 +4,80 @@ A Kubernetes native controller that leverages the [Pod Scheduling Readiness](htt
 
 ## Overview
 
-The Pod Sequence Controller allows you to define ordered **pod groups** where scheduling gates are managed based on readiness. Multiple pods in a tier start together, with the next tier waiting for ALL pods in the current tier to be ready.
+The Pod Sequence Controller allows you to define ordered **pod groups** where scheduling gates are managed based on readiness at either the **cluster level** or **node level**.
+
+### Cluster-Scoped Sequencing (Default)
+Multiple pods in a tier start together across the entire cluster, with the next tier waiting for ALL pods in the current tier to be ready cluster-wide.
+
+### Node-Scoped Sequencing
+Pods are sequenced independently on each node. On each node, the next tier waits for ALL pods in the current tier on **that specific node** to be ready.
 
 This is useful for scenarios such as:
 
+**Cluster-Scoped:**
 - Database initialization workflows with replicas
 - Multi-tier application startup sequences (database → application → frontend)
 - Ordered data processing pipelines
 - Stateful application dependencies with high availability
-- Any scenario requiring sequential startup (single-pod groups work too!)
+
+**Node-Scoped:**
+- CSI driver DaemonSets must be ready before pods with CSI volumes
+- Device plugins (GPU, FPGA) must be ready before workloads using those devices
+- Node monitoring agents before application pods
+- Any node-level dependency (single-pod groups work too!)
 
 ## How It Works
 
 1. **Create Pods with Scheduling Gates**: Define your pods with a scheduling gate (e.g., `podsequence.example.com/sequence-gate`)
 2. **Define Pod Groups**: Organize your pods into logical groups (tiers) in a `PodSequence` resource
-3. **All pods in a group start together**: When a group's turn comes, all its pods have their scheduling gates removed simultaneously
-4. **Next group waits for ALL pods**: The next group only starts when **all pods** in the current group are ready
+3. **Choose Scope**: Specify `scope: Cluster` (default) or `scope: Node`
+4. **Controller manages sequencing**:
+   - **Cluster scope**: All pods in a group have gates removed together; next group waits for all to be ready cluster-wide
+   - **Node scope**: Pods in a group have gates removed per-node; next group on each node waits for all to be ready on that node
 
-**Example**: 
+### Cluster-Scoped Example
 - **Group 1** (Database): pod-1, pod-2 → Both start immediately
 - **Group 2** (Application): pod-3, pod-4 → Start only after pod-1 **AND** pod-2 are ready
 - **Group 3** (Frontend): pod-5 → Starts only after pod-3 **AND** pod-4 are ready
 
+### Node-Scoped Example (CSI Driver)
+- **Group 1** (CSI Driver): csi-node-worker1, csi-node-worker2 → Start immediately on their respective nodes
+- **Group 2** (Apps): app-on-worker1, app-on-worker2 → app-on-worker1 starts only after csi-node-worker1 is ready; app-on-worker2 starts only after csi-node-worker2 is ready
+
 **Note**: For sequential single-pod startup, simply create groups with one pod each!
+
+### Pod Selection: Explicit Names vs. Label Selectors
+
+Each `PodGroup` can specify pods in two ways:
+
+#### Explicit Pod Names (`pods`)
+Use when you know the exact pod names in advance:
+```yaml
+podGroups:
+  - name: "Database"
+    pods:
+      - postgres-primary
+      - postgres-replica-1
+```
+**Best for**: Individually named pods, StatefulSets with predictable names (e.g., `postgres-0`, `postgres-1`)
+
+#### Label Selectors (`podSelector`)
+Use for pods created by controllers with generated names:
+```yaml
+podGroups:
+  - name: "CSI Driver"
+    podSelector:
+      matchLabels:
+        app: csi-driver
+        component: node
+```
+**Best for**: DaemonSets, Deployments, or any pods where names are auto-generated
+
+**Rules**:
+- You must specify **either** `pods` **or** `podSelector` (not both)
+- Label selectors match pods in the same namespace as the `PodSequence`
+- Use `matchLabels` for simple equality-based matching
+- Use `matchExpressions` for more complex selection criteria
 
 ## Installation
 
@@ -142,6 +193,49 @@ Apply the example:
 kubectl apply -f config/samples/example-podsequence.yaml
 ```
 
+### DaemonSet Example with Label Selector
+
+For DaemonSets (which generate pod names), use label selectors:
+
+```yaml
+apiVersion: scheduling.example.com/v1alpha1
+kind: PodSequence
+metadata:
+  name: daemonset-sequence
+  namespace: default
+spec:
+  scope: Node  # Node-scoped for node-level dependencies
+  podGroups:
+    - name: "Device Plugin"
+      podSelector:
+        matchLabels:
+          app: gpu-plugin
+    - name: "GPU Workload"
+      podSelector:
+        matchLabels:
+          app: ml-training
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: gpu-plugin
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: gpu-plugin
+  template:
+    metadata:
+      labels:
+        app: gpu-plugin
+    spec:
+      schedulingGates:
+      - name: podsequence.example.com/sequence-gate
+      containers:
+      - name: plugin
+        image: nvidia/k8s-device-plugin:v0.14.0
+```
+
 ### Monitor the Sequence
 
 Watch the PodSequence status:
@@ -161,7 +255,7 @@ You'll see pods transition through:
 2. `Pending` - Scheduling gate removed, being scheduled
 3. `Running` - Pod is running and becoming ready
 
-### Pod Groups Example
+### Cluster-Scoped Pod Groups Example
 
 Use pod groups to manage multi-tier applications with high availability:
 
@@ -172,6 +266,7 @@ metadata:
   name: podgroups-example
   namespace: default
 spec:
+  scope: Cluster  # Default - cluster-wide sequencing
   podGroups:
     - name: "Database Layer"
       pods:
@@ -222,6 +317,37 @@ spec:
 
 See `config/samples/database-init-example.yaml` for the complete example.
 
+### Node-Scoped CSI Driver Example
+
+Ensure CSI driver DaemonSet pods are ready before application pods that need CSI volumes:
+
+```yaml
+apiVersion: scheduling.example.com/v1alpha1
+kind: PodSequence
+metadata:
+  name: csi-driver-sequence
+  namespace: default
+spec:
+  scope: Node  # Node-level sequencing
+  podGroups:
+    - name: "CSI Driver"
+      podSelector:
+        matchLabels:
+          app: csi-driver
+          component: node
+    - name: "Application Pods"
+      podSelector:
+        matchLabels:
+          app: my-app
+```
+
+**Behavior**:
+- On each node: application pods wait for CSI driver pods to be ready on that same node
+- **Each node progresses independently**
+- **Uses label selectors** to support DaemonSets with generated pod names
+
+See `config/samples/node-scoped-csi-example.yaml` and `config/samples/node-scoped-device-plugin-example.yaml` for complete examples.
+
 ## PodSequence API
 
 ### Spec Fields
@@ -229,6 +355,7 @@ See `config/samples/database-init-example.yaml` for the complete example.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `podGroups` | `[]PodGroup` | Yes | Ordered list of pod groups |
+| `scope` | `string` | No | `Cluster` (default) or `Node` - determines sequencing scope |
 | `namespace` | `string` | No | Namespace where pods are located (defaults to PodSequence namespace) |
 | `schedulingGateName` | `string` | No | Name of the scheduling gate to manage (default: `podsequence.example.com/sequence-gate`) |
 
@@ -237,18 +364,30 @@ See `config/samples/database-init-example.yaml` for the complete example.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | `string` | No | Optional name for the group (for identification) |
-| `pods` | `[]string` | Yes | List of pod names in this group |
+| `pods` | `[]string` | Conditional | List of explicit pod names in this group. Either `pods` or `podSelector` must be specified. |
+| `podSelector` | `LabelSelector` | Conditional | Label selector to match pods in this group. Either `pods` or `podSelector` must be specified. Use this for DaemonSets or Deployments. |
+| `nodeSelector` | `map[string]string` | No | Node selector for node-scoped sequences (future use) |
 
 ### Status Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `phase` | `string` | Current phase: `Pending`, `InProgress`, `Completed`, or `Failed` |
-| `currentIndex` | `int` | Index in the sequence/group currently being processed |
-| `currentGroupPods` | `[]string` | Pod names in the current group (pod groups only) |
-| `readyPodsInCurrentGroup` | `int` | Count of ready pods in current group (pod groups only) |
+| `currentIndex` | `int` | Index currently being processed (cluster-wide or min across nodes) |
+| `nodeStatus` | `[]NodeSequenceStatus` | Per-node status for node-scoped sequences |
+| `currentGroupPods` | `[]string` | Pod names in the current group (cluster-scoped only) |
+| `readyPodsInCurrentGroup` | `int` | Count of ready pods in current group (cluster-scoped only) |
 | `processedPods` | `[]string` | List of pods that have been successfully processed |
 | `message` | `string` | Human-readable status message |
+
+#### NodeSequenceStatus Fields (Node-scoped only)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `nodeName` | `string` | Name of the node |
+| `currentIndex` | `int` | Current group index on this node |
+| `readyPodsInCurrentGroup` | `int` | Ready pods in current group on this node |
+| `phase` | `string` | Phase for this node |
 | `conditions` | `[]Condition` | Standard Kubernetes conditions |
 
 ## Development

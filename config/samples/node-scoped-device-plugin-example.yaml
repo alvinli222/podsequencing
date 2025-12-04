@@ -1,0 +1,112 @@
+# Example: Node-level sequencing for device plugin dependencies
+# This example demonstrates GPU device plugin must be ready before GPU workloads start
+
+apiVersion: scheduling.example.com/v1alpha1
+kind: PodSequence
+metadata:
+  name: gpu-device-plugin-sequence
+  namespace: kube-system
+spec:
+  scope: Node  # Node-level sequencing
+  podGroups:
+    - name: "GPU Device Plugin"
+      podSelector:
+        matchLabels:
+          name: nvidia-device-plugin-ds
+    - name: "GPU Workloads"
+      podSelector:
+        matchLabels:
+          workload-type: gpu-training
+---
+# NVIDIA Device Plugin DaemonSet
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin-daemonset
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin-ds
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: nvidia-device-plugin-ds
+    spec:
+      schedulingGates:
+      - name: podsequence.example.com/sequence-gate
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      priorityClassName: system-node-critical
+      containers:
+      - name: nvidia-device-plugin-ctr
+        image: nvcr.io/nvidia/k8s-device-plugin:v0.14.0
+        securityContext:
+          privileged: true
+        env:
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: all
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: compute,utility
+        volumeMounts:
+        - name: device-plugin
+          mountPath: /var/lib/kubelet/device-plugins
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - "test -S /var/lib/kubelet/device-plugins/nvidia.sock"
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      volumes:
+      - name: device-plugin
+        hostPath:
+          path: /var/lib/kubelet/device-plugins
+---
+# ML Training Job Deployment
+# These will only start on each node after the device plugin is ready on that node
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-training-jobs
+  namespace: kube-system
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      workload-type: gpu-training
+  template:
+    metadata:
+      labels:
+        workload-type: gpu-training
+    spec:
+      schedulingGates:
+      - name: podsequence.example.com/sequence-gate
+      containers:
+      - name: training
+        image: pytorch/pytorch:2.0.0-cuda11.7-cudnn8-runtime
+        command:
+        - python3
+        - -c
+        - |
+          import torch
+          print(f"GPU Available: {torch.cuda.is_available()}")
+          print(f"GPU Count: {torch.cuda.device_count()}")
+          import time
+          time.sleep(3600)
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - "pgrep python3"
+          initialDelaySeconds: 10
+          periodSeconds: 5

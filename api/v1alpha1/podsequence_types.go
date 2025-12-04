@@ -10,11 +10,36 @@ type PodGroup struct {
 	// +optional
 	Name string `json:"name,omitempty"`
 
-	// Pods is the list of pod names in this group
-	// All pods in the group will have their scheduling gates removed together
-	// +kubebuilder:validation:MinItems=1
-	Pods []string `json:"pods"`
+	// Pods is the list of specific pod names in this group
+	// Use this for explicitly named pods
+	// Either Pods or PodSelector must be specified, but not both
+	// +optional
+	Pods []string `json:"pods,omitempty"`
+
+	// PodSelector selects pods using label selector (useful for DaemonSets, StatefulSets, etc.)
+	// All pods matching the selector will be included in this group
+	// Either Pods or PodSelector must be specified, but not both
+	// +optional
+	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
+
+	// NodeSelector specifies which nodes this group applies to (for node-scoped sequences)
+	// When Scope is "Node", pods in this group on each node must be ready before
+	// the next group's pods on that same node can start
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 }
+
+// PodSequenceScope defines the scope at which pod sequencing is enforced
+type PodSequenceScope string
+
+const (
+	// PodSequenceScopeCluster enforces sequencing across the entire cluster
+	// All pods in a group must be ready before any pods in the next group start
+	PodSequenceScopeCluster PodSequenceScope = "Cluster"
+	// PodSequenceScopeNode enforces sequencing per-node
+	// Pods in a group on each node must be ready before the next group's pods on that node start
+	PodSequenceScopeNode PodSequenceScope = "Node"
+)
 
 // PodSequenceSpec defines the desired state of PodSequence
 type PodSequenceSpec struct {
@@ -24,6 +49,14 @@ type PodSequenceSpec struct {
 	// current group are ready
 	// +kubebuilder:validation:MinItems=1
 	PodGroups []PodGroup `json:"podGroups"`
+
+	// Scope determines whether sequencing is enforced at the cluster or node level
+	// - Cluster (default): All pods in a group across the cluster must be ready before the next group starts
+	// - Node: Pods in a group on each node must be ready before the next group's pods on that node start
+	// +kubebuilder:validation:Enum=Cluster;Node
+	// +kubebuilder:default=Cluster
+	// +optional
+	Scope PodSequenceScope `json:"scope,omitempty"`
 
 	// Namespace is the namespace where the pods are located
 	// If not specified, defaults to the namespace of the PodSequence resource
@@ -36,15 +69,35 @@ type PodSequenceSpec struct {
 	SchedulingGateName string `json:"schedulingGateName,omitempty"`
 }
 
+// NodeSequenceStatus tracks the sequencing status for a specific node
+type NodeSequenceStatus struct {
+	// NodeName is the name of the node
+	NodeName string `json:"nodeName"`
+
+	// CurrentIndex is the current group index being processed on this node
+	CurrentIndex int `json:"currentIndex"`
+
+	// ReadyPodsInCurrentGroup is the count of ready pods in the current group on this node
+	ReadyPodsInCurrentGroup int `json:"readyPodsInCurrentGroup"`
+
+	// Phase indicates the current phase for this node
+	Phase PodSequencePhase `json:"phase"`
+}
+
 // PodSequenceStatus defines the observed state of PodSequence
 type PodSequenceStatus struct {
 	// CurrentIndex is the index in the sequence that is currently being processed
-	// For PodGroups, this refers to the current group index
+	// For cluster-scoped sequences, this is the cluster-wide group index
+	// For node-scoped sequences, this tracks the minimum index across all nodes
 	CurrentIndex int `json:"currentIndex"`
 
 	// Phase indicates the current phase of the sequence
 	// Possible values: Pending, InProgress, Completed, Failed
 	Phase PodSequencePhase `json:"phase"`
+
+	// NodeStatus tracks per-node sequencing progress (only for node-scoped sequences)
+	// +optional
+	NodeStatus []NodeSequenceStatus `json:"nodeStatus,omitempty"`
 
 	// Conditions represent the latest available observations of the PodSequence's state
 	Conditions []metav1.Condition `json:"conditions,omitempty"`

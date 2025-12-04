@@ -1,11 +1,13 @@
 # Example 1: Basic three-pod sequence using pod groups
 # Each pod is in its own group, providing sequential startup
+# Uses Cluster scope (default) for simple sequential workflow
 apiVersion: scheduling.example.com/v1alpha1
 kind: PodSequence
 metadata:
   name: example-sequence
   namespace: default
 spec:
+  scope: Cluster  # Cluster-wide sequential startup
   podGroups:
     - name: "Pod 1"
       pods:

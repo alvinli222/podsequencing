@@ -3,6 +3,7 @@
 # Pod Group 1 (pod-1, pod-2) will start first
 # Pod Group 2 (pod-3, pod-4) will only start after BOTH pods in Group 1 are ready
 # Pod Group 3 (pod-5) will only start after BOTH pods in Group 2 are ready
+# Uses Cluster scope for multi-tier application startup
 
 apiVersion: scheduling.example.com/v1alpha1
 kind: PodSequence
@@ -10,6 +11,7 @@ metadata:
   name: podgroups-example
   namespace: default
 spec:
+  scope: Cluster  # All pods in a tier must be ready cluster-wide before next tier
   podGroups:
     - name: "Database Layer"
       pods:

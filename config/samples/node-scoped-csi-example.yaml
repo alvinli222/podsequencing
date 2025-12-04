@@ -1,0 +1,106 @@
+# Example: Node-level sequencing for CSI Driver dependencies
+# This example shows how to ensure CSI driver DaemonSet pods are ready
+# before application pods that need CSI volumes can start on each node
+
+apiVersion: scheduling.example.com/v1alpha1
+kind: PodSequence
+metadata:
+  name: csi-driver-sequence
+  namespace: kube-system
+spec:
+  scope: Node  # Node-level sequencing
+  podGroups:
+    - name: "CSI Driver"
+      podSelector:
+        matchLabels:
+          app: csi-driver
+          component: node
+    - name: "Application Pods"
+      podSelector:
+        matchLabels:
+          app: myapp
+          requires-csi: "true"
+---
+# CSI Driver DaemonSet
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: csi-driver
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: csi-driver
+      component: node
+  template:
+    metadata:
+      labels:
+        app: csi-driver
+        component: node
+    spec:
+      schedulingGates:
+      - name: podsequence.example.com/sequence-gate
+      containers:
+      - name: csi-driver
+        image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.9.0
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: plugin-dir
+          mountPath: /csi
+        - name: registration-dir
+          mountPath: /registration
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - "test -S /csi/csi.sock"
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: plugin-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins/csi-driver
+          type: DirectoryOrCreate
+      - name: registration-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins_registry
+          type: Directory
+---
+# Application Deployment that requires CSI
+# Pods will only start on each node after the CSI driver is ready on that node
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+  namespace: kube-system
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: myapp
+      requires-csi: "true"
+  template:
+    metadata:
+      labels:
+        app: myapp
+        requires-csi: "true"
+    spec:
+      schedulingGates:
+      - name: podsequence.example.com/sequence-gate
+      containers:
+      - name: app
+        image: nginx:latest
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: data
+        emptyDir: {}  # In real scenario, this would be a CSI volume

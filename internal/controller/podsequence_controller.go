@@ -7,6 +7,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -61,8 +62,11 @@ func (r *PodSequenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		schedulingGateName = DefaultSchedulingGate
 	}
 
-	// Determine if we're using PodGroups or legacy Sequence
-	usePodGroups := len(podSeq.Spec.PodGroups) > 0
+	// Determine scope (default to Cluster if not specified)
+	scope := podSeq.Spec.Scope
+	if scope == "" {
+		scope = schedulingv1alpha1.PodSequenceScopeCluster
+	}
 
 	// Initialize status if needed
 	if podSeq.Status.Phase == "" {
@@ -71,6 +75,9 @@ func (r *PodSequenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		podSeq.Status.ProcessedPods = []string{}
 		podSeq.Status.CurrentGroupPods = []string{}
 		podSeq.Status.ReadyPodsInCurrentGroup = 0
+		if scope == schedulingv1alpha1.PodSequenceScopeNode {
+			podSeq.Status.NodeStatus = []schedulingv1alpha1.NodeSequenceStatus{}
+		}
 		if err := r.Status().Update(ctx, podSeq); err != nil {
 			log.Error(err, "Failed to initialize status")
 			return ctrl.Result{}, err
@@ -83,6 +90,17 @@ func (r *PodSequenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if podSeq.Status.Phase == schedulingv1alpha1.PodSequencePhaseCompleted {
 		return ctrl.Result{}, nil
 	}
+
+	// Route to appropriate reconciliation based on scope
+	if scope == schedulingv1alpha1.PodSequenceScopeNode {
+		return r.reconcileNodeScoped(ctx, podSeq, targetNamespace, schedulingGateName)
+	}
+	return r.reconcileClusterScoped(ctx, podSeq, targetNamespace, schedulingGateName)
+}
+
+// reconcileClusterScoped handles cluster-level pod sequencing
+func (r *PodSequenceReconciler) reconcileClusterScoped(ctx context.Context, podSeq *schedulingv1alpha1.PodSequence, targetNamespace, schedulingGateName string) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
 
 	// Process pod groups
 
@@ -104,19 +122,30 @@ func (r *PodSequenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if groupName == "" {
 		groupName = fmt.Sprintf("Group %d", currentIndex+1)
 	}
-	log.Info("Processing pod group", "index", currentIndex, "groupName", groupName, "podCount", len(currentGroup.Pods))
+
+	// Get pods in current group (by name or selector)
+	currentPods, err := r.getPodsInGroup(ctx, currentGroup, targetNamespace)
+	if err != nil {
+		log.Error(err, "Failed to get pods in current group")
+		podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseFailed
+		podSeq.Status.Message = fmt.Sprintf("Failed to get pods in %s: %v", groupName, err)
+		r.Status().Update(ctx, podSeq)
+		return ctrl.Result{}, err
+	}
+
+	log.Info("Processing pod group", "index", currentIndex, "groupName", groupName, "podCount", len(currentPods))
 
 	// Check if all pods in previous group are ready (if not first group)
 	if currentIndex > 0 {
 		prevGroup := podSeq.Spec.PodGroups[currentIndex-1]
+		prevPods, err := r.getPodsInGroup(ctx, prevGroup, targetNamespace)
+		if err != nil {
+			log.Error(err, "Failed to get pods in previous group")
+			return ctrl.Result{}, err
+		}
+
 		allPreviousReady := true
-		for _, podName := range prevGroup.Pods {
-			pod := &corev1.Pod{}
-			podKey := types.NamespacedName{Namespace: targetNamespace, Name: podName}
-			if err := r.Get(ctx, podKey, pod); err != nil {
-				log.Error(err, "Failed to get pod from previous group", "podName", podName)
-				return ctrl.Result{}, err
-			}
+		for _, pod := range prevPods {
 			if !isPodReady(pod) {
 				allPreviousReady = false
 				break
@@ -140,72 +169,223 @@ func (r *PodSequenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// Remove scheduling gates from all pods in current group
-	for _, podName := range currentGroup.Pods {
-		pod := &corev1.Pod{}
-		podKey := types.NamespacedName{Namespace: targetNamespace, Name: podName}
-		if err := r.Get(ctx, podKey, pod); err != nil {
-			if errors.IsNotFound(err) {
-				podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseFailed
-				podSeq.Status.Message = fmt.Sprintf("Pod %s not found in namespace %s", podName, targetNamespace)
-				r.Recorder.Event(podSeq, corev1.EventTypeWarning, "PodNotFound", podSeq.Status.Message)
-				if err := r.Status().Update(ctx, podSeq); err != nil {
-					log.Error(err, "Failed to update status")
-					return ctrl.Result{}, err
-				}
-				return ctrl.Result{}, nil
-			}
-			log.Error(err, "Failed to get pod", "podName", podName)
-			return ctrl.Result{}, err
-		}
-
+	for _, pod := range currentPods {
 		if err := r.removeSchedulingGate(ctx, pod, schedulingGateName); err != nil {
-			log.Error(err, "Failed to remove scheduling gate", "podName", podName)
+			log.Error(err, "Failed to remove scheduling gate", "podName", pod.Name)
 			return ctrl.Result{}, err
 		}
 	}
 
 	// Check how many pods in the current group are ready
 	readyCount := 0
-	for _, podName := range currentGroup.Pods {
-		pod := &corev1.Pod{}
-		podKey := types.NamespacedName{Namespace: targetNamespace, Name: podName}
-		if err := r.Get(ctx, podKey, pod); err != nil {
-			log.Error(err, "Failed to get pod", "podName", podName)
-			return ctrl.Result{}, err
-		}
+	currentPodNames := []string{}
+	for _, pod := range currentPods {
+		currentPodNames = append(currentPodNames, pod.Name)
 		if isPodReady(pod) {
 			readyCount++
 		}
 	}
 
 	// Update status with current group info
-	podSeq.Status.CurrentGroupPods = currentGroup.Pods
+	podSeq.Status.CurrentGroupPods = currentPodNames
 	podSeq.Status.ReadyPodsInCurrentGroup = readyCount
 
 	// Check if all pods in current group are ready
-	if readyCount == len(currentGroup.Pods) {
+	if readyCount == len(currentPods) {
 		// All pods in group are ready, move to next group
 		podSeq.Status.CurrentIndex++
-		podSeq.Status.ProcessedPods = append(podSeq.Status.ProcessedPods, currentGroup.Pods...)
+		podSeq.Status.ProcessedPods = append(podSeq.Status.ProcessedPods, currentPodNames...)
 		podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
-		podSeq.Status.Message = fmt.Sprintf("All pods in %s are ready (%d/%d), moving to next group", groupName, readyCount, len(currentGroup.Pods))
+		podSeq.Status.Message = fmt.Sprintf("All pods in %s are ready (%d/%d), moving to next group", groupName, readyCount, len(currentPods))
 		if err := r.Status().Update(ctx, podSeq); err != nil {
 			log.Error(err, "Failed to update status")
 			return ctrl.Result{}, err
 		}
-		r.Recorder.Event(podSeq, corev1.EventTypeNormal, "GroupReady", fmt.Sprintf("%s is ready with all %d pods", groupName, len(currentGroup.Pods)))
+		r.Recorder.Event(podSeq, corev1.EventTypeNormal, "GroupReady", fmt.Sprintf("%s is ready with all %d pods", groupName, len(currentPods)))
 		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// Not all pods ready yet, wait
-	log.Info("Not all pods in group ready yet, waiting", "groupName", groupName, "ready", readyCount, "total", len(currentGroup.Pods))
+	log.Info("Not all pods in group ready yet, waiting", "groupName", groupName, "ready", readyCount, "total", len(currentPods))
 	podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
-	podSeq.Status.Message = fmt.Sprintf("Waiting for all pods in %s to become ready (%d/%d ready)", groupName, readyCount, len(currentGroup.Pods))
+	podSeq.Status.Message = fmt.Sprintf("Waiting for all pods in %s to become ready (%d/%d ready)", groupName, readyCount, len(currentPods))
 	if err := r.Status().Update(ctx, podSeq); err != nil {
 		log.Error(err, "Failed to update status")
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: RequeueDelay}, nil
+}
+
+// reconcileNodeScoped handles node-level pod sequencing
+func (r *PodSequenceReconciler) reconcileNodeScoped(ctx context.Context, podSeq *schedulingv1alpha1.PodSequence, targetNamespace, schedulingGateName string) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	// Get all pods across all groups to determine which nodes are involved
+	allNodeNames := make(map[string]bool)
+	for _, group := range podSeq.Spec.PodGroups {
+		pods, err := r.getPodsInGroup(ctx, group, targetNamespace)
+		if err != nil {
+			log.Error(err, "Failed to get pods in group")
+			continue
+		}
+		for _, pod := range pods {
+			// Track node if pod is scheduled
+			if pod.Spec.NodeName != "" {
+				allNodeNames[pod.Spec.NodeName] = true
+			}
+		}
+	}
+
+	// Initialize node status if needed
+	nodeStatusMap := make(map[string]*schedulingv1alpha1.NodeSequenceStatus)
+	for _, ns := range podSeq.Status.NodeStatus {
+		nodeStatusMap[ns.NodeName] = &schedulingv1alpha1.NodeSequenceStatus{
+			NodeName:                ns.NodeName,
+			CurrentIndex:            ns.CurrentIndex,
+			ReadyPodsInCurrentGroup: ns.ReadyPodsInCurrentGroup,
+			Phase:                   ns.Phase,
+		}
+	}
+
+	// Process each node independently
+	needsRequeue := false
+	allNodesCompleted := true
+	minIndex := len(podSeq.Spec.PodGroups)
+
+	for nodeName := range allNodeNames {
+		// Get or create node status
+		nodeStatus, exists := nodeStatusMap[nodeName]
+		if !exists {
+			nodeStatus = &schedulingv1alpha1.NodeSequenceStatus{
+				NodeName:                nodeName,
+				CurrentIndex:            0,
+				ReadyPodsInCurrentGroup: 0,
+				Phase:                   schedulingv1alpha1.PodSequencePhasePending,
+			}
+			nodeStatusMap[nodeName] = nodeStatus
+		}
+
+		// Check if this node is completed
+		if nodeStatus.CurrentIndex >= len(podSeq.Spec.PodGroups) {
+			nodeStatus.Phase = schedulingv1alpha1.PodSequencePhaseCompleted
+			continue
+		}
+
+		allNodesCompleted = false
+		if nodeStatus.CurrentIndex < minIndex {
+			minIndex = nodeStatus.CurrentIndex
+		}
+
+		currentGroup := podSeq.Spec.PodGroups[nodeStatus.CurrentIndex]
+		groupName := currentGroup.Name
+		if groupName == "" {
+			groupName = fmt.Sprintf("Group %d", nodeStatus.CurrentIndex+1)
+		}
+
+		// Check if previous group is ready on this node
+		if nodeStatus.CurrentIndex > 0 {
+			prevGroup := podSeq.Spec.PodGroups[nodeStatus.CurrentIndex-1]
+			prevPods, err := r.getPodsInGroup(ctx, prevGroup, targetNamespace)
+			if err != nil {
+				log.Error(err, "Failed to get pods in previous group", "node", nodeName)
+				return ctrl.Result{}, err
+			}
+
+			allPreviousReady := true
+			for _, pod := range prevPods {
+				// Only check pods on this specific node
+				if pod.Spec.NodeName != nodeName {
+					continue
+				}
+				if !isPodReady(pod) {
+					allPreviousReady = false
+					break
+				}
+			}
+
+			if !allPreviousReady {
+				log.Info("Previous group not ready on node, waiting", "node", nodeName, "group", groupName)
+				nodeStatus.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
+				needsRequeue = true
+				continue
+			}
+		}
+
+		// Get pods in current group
+		currentPods, err := r.getPodsInGroup(ctx, currentGroup, targetNamespace)
+		if err != nil {
+			log.Error(err, "Failed to get pods in current group", "node", nodeName)
+			return ctrl.Result{}, err
+		}
+
+		// Remove scheduling gates from pods in current group on this node
+		for _, pod := range currentPods {
+			// Only process pods on this specific node
+			if pod.Spec.NodeName != nodeName {
+				continue
+			}
+
+			if err := r.removeSchedulingGate(ctx, pod, schedulingGateName); err != nil {
+				log.Error(err, "Failed to remove scheduling gate", "podName", pod.Name, "node", nodeName)
+				return ctrl.Result{}, err
+			}
+		}
+
+		// Check how many pods in current group are ready on this node
+		readyCount := 0
+		totalPodsOnNode := 0
+		for _, pod := range currentPods {
+			if pod.Spec.NodeName != nodeName {
+				continue
+			}
+			totalPodsOnNode++
+			if isPodReady(pod) {
+				readyCount++
+			}
+		}
+
+		nodeStatus.ReadyPodsInCurrentGroup = readyCount
+
+		// Check if all pods in current group on this node are ready
+		if totalPodsOnNode > 0 && readyCount == totalPodsOnNode {
+			// All pods on this node are ready, move to next group
+			nodeStatus.CurrentIndex++
+			nodeStatus.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
+			log.Info("Node completed group", "node", nodeName, "group", groupName, "ready", readyCount)
+			needsRequeue = true
+		} else {
+			// Not all pods ready yet
+			nodeStatus.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
+			log.Info("Waiting for pods on node", "node", nodeName, "group", groupName, "ready", readyCount, "total", totalPodsOnNode)
+			needsRequeue = true
+		}
+	}
+
+	// Update status with all node statuses
+	podSeq.Status.NodeStatus = []schedulingv1alpha1.NodeSequenceStatus{}
+	for _, ns := range nodeStatusMap {
+		podSeq.Status.NodeStatus = append(podSeq.Status.NodeStatus, *ns)
+	}
+	podSeq.Status.CurrentIndex = minIndex
+
+	if allNodesCompleted {
+		podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseCompleted
+		podSeq.Status.Message = "All nodes completed their sequences"
+		r.Recorder.Event(podSeq, corev1.EventTypeNormal, "Completed", "All nodes completed their sequences")
+	} else {
+		podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
+		podSeq.Status.Message = fmt.Sprintf("Processing node-scoped sequences (min group index: %d)", minIndex)
+	}
+
+	if err := r.Status().Update(ctx, podSeq); err != nil {
+		log.Error(err, "Failed to update status")
+		return ctrl.Result{}, err
+	}
+
+	if needsRequeue {
+		return ctrl.Result{RequeueAfter: RequeueDelay}, nil
+	}
+	return ctrl.Result{}, nil
 }
 
 // removeSchedulingGate removes the specified scheduling gate from a pod
@@ -247,6 +427,53 @@ func isPodReady(pod *corev1.Pod) bool {
 		}
 	}
 	return false
+}
+
+// getPodsInGroup returns all pods in a group, either by explicit names or label selector
+func (r *PodSequenceReconciler) getPodsInGroup(ctx context.Context, group schedulingv1alpha1.PodGroup, targetNamespace string) ([]*corev1.Pod, error) {
+	log := log.FromContext(ctx)
+	var pods []*corev1.Pod
+
+	// If explicit pod names are provided, get them by name
+	if len(group.Pods) > 0 {
+		for _, podName := range group.Pods {
+			pod := &corev1.Pod{}
+			podKey := types.NamespacedName{Namespace: targetNamespace, Name: podName}
+			if err := r.Get(ctx, podKey, pod); err != nil {
+				if errors.IsNotFound(err) {
+					continue // Pod might not exist yet
+				}
+				return nil, fmt.Errorf("failed to get pod %s: %w", podName, err)
+			}
+			pods = append(pods, pod)
+		}
+		return pods, nil
+	}
+
+	// If podSelector is provided, list pods by label selector
+	if group.PodSelector != nil {
+		selector, err := metav1.LabelSelectorAsSelector(group.PodSelector)
+		if err != nil {
+			return nil, fmt.Errorf("invalid label selector: %w", err)
+		}
+
+		podList := &corev1.PodList{}
+		listOpts := &client.ListOptions{
+			Namespace:     targetNamespace,
+			LabelSelector: selector,
+		}
+		if err := r.List(ctx, podList, listOpts); err != nil {
+			return nil, fmt.Errorf("failed to list pods: %w", err)
+		}
+
+		for i := range podList.Items {
+			pods = append(pods, &podList.Items[i])
+		}
+		log.Info("Found pods using selector", "count", len(pods), "selector", selector.String())
+		return pods, nil
+	}
+
+	return pods, fmt.Errorf("group must specify either pods or podSelector")
 }
 
 // SetupWithManager sets up the controller with the Manager.
