@@ -1,0 +1,154 @@
+# Test example: Sequential startup with 4 pods that each take 10 minutes to become ready
+# This tests the pod sequence controller with realistic startup delays
+apiVersion: scheduling.example.com/v1alpha1
+kind: PodSequence
+metadata:
+  name: test-delayed-sequence
+  namespace: default
+spec:
+  scope: Cluster  # Cluster-wide sequential startup
+  podGroups:
+    - name: "Test Pod 1"
+      pods:
+        - test-pod-1
+    - name: "Test Pod 2"
+      pods:
+        - test-pod-2
+    - name: "Test Pod 3"
+      pods:
+        - test-pod-3
+    - name: "Test Pod 4"
+      pods:
+        - test-pod-4
+---
+# Test Pod 1 - Will be scheduled first, takes 10 minutes to become ready
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-1
+  namespace: default
+  labels:
+    app: test-delayed
+    sequence: "1"
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: delayed-app
+    image: busybox:latest
+    command:
+    - sh
+    - -c
+    - |
+      echo "Pod 1 starting - will be ready in 10 minutes"
+      sleep 600
+      echo "Pod 1 is now ready"
+      # Keep the container running
+      while true; do sleep 30; done
+    readinessProbe:
+      exec:
+        command:
+        - sh
+        - -c
+        - test -f /tmp/ready || ([ $(( $(date +%s) - $(stat -c %Y /proc/1) )) -ge 600 ] && touch /tmp/ready && exit 0 || exit 1)
+      initialDelaySeconds: 10
+      periodSeconds: 10
+---
+# Test Pod 2 - Will be scheduled after test-pod-1 is ready
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-2
+  namespace: default
+  labels:
+    app: test-delayed
+    sequence: "2"
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: delayed-app
+    image: busybox:latest
+    command:
+    - sh
+    - -c
+    - |
+      echo "Pod 2 starting - will be ready in 10 minutes"
+      sleep 600
+      echo "Pod 2 is now ready"
+      # Keep the container running
+      while true; do sleep 30; done
+    readinessProbe:
+      exec:
+        command:
+        - sh
+        - -c
+        - test -f /tmp/ready || ([ $(( $(date +%s) - $(stat -c %Y /proc/1) )) -ge 600 ] && touch /tmp/ready && exit 0 || exit 1)
+      initialDelaySeconds: 10
+      periodSeconds: 10
+---
+# Test Pod 3 - Will be scheduled after test-pod-2 is ready
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-3
+  namespace: default
+  labels:
+    app: test-delayed
+    sequence: "3"
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: delayed-app
+    image: busybox:latest
+    command:
+    - sh
+    - -c
+    - |
+      echo "Pod 3 starting - will be ready in 10 minutes"
+      sleep 600
+      echo "Pod 3 is now ready"
+      # Keep the container running
+      while true; do sleep 30; done
+    readinessProbe:
+      exec:
+        command:
+        - sh
+        - -c
+        - test -f /tmp/ready || ([ $(( $(date +%s) - $(stat -c %Y /proc/1) )) -ge 600 ] && touch /tmp/ready && exit 0 || exit 1)
+      initialDelaySeconds: 10
+      periodSeconds: 10
+---
+# Test Pod 4 - Will be scheduled after test-pod-3 is ready
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-4
+  namespace: default
+  labels:
+    app: test-delayed
+    sequence: "4"
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: delayed-app
+    image: busybox:latest
+    command:
+    - sh
+    - -c
+    - |
+      echo "Pod 4 starting - will be ready in 10 minutes"
+      sleep 600
+      echo "Pod 4 is now ready"
+      # Keep the container running
+      while true; do sleep 30; done
+    readinessProbe:
+      exec:
+        command:
+        - sh
+        - -c
+        - test -f /tmp/ready || ([ $(( $(date +%s) - $(stat -c %Y /proc/1) )) -ge 600 ] && touch /tmp/ready && exit 0 || exit 1)
+      initialDelaySeconds: 10
+      periodSeconds: 10
