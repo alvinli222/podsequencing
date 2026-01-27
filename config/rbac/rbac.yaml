@@ -57,6 +57,18 @@ rules:
   verbs:
   - create
   - patch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -91,8 +103,8 @@ spec:
       serviceAccountName: pod-sequence-controller
       containers:
       - name: manager
-        image: pod-sequence-controller:latest
-        imagePullPolicy: IfNotPresent
+        image: podsequencing.azurecr.io/pod-sequence-controller:latest
+        imagePullPolicy: Always
         command:
         - /manager
         args:
