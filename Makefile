@@ -2,6 +2,7 @@
 
 # Image URL to use all building/pushing image targets
 IMG ?= pod-sequence-controller:latest
+ACR ?= # set to your Azure Container Registry name (e.g., myregistry)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -66,6 +67,12 @@ deploy: ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	kubectl apply -f config/rbac/rbac.yaml
 	kubectl apply -f config/crd/podsequence-crd.yaml
 
+.PHONY: deploy-image
+deploy-image: ## Deploy controller and set image to $(IMG)
+	kubectl apply -f config/rbac/rbac.yaml
+	kubectl apply -f config/crd/podsequence-crd.yaml
+	kubectl -n pod-sequence-system set image deploy/pod-sequence-controller manager=$(IMG)
+
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	kubectl delete -f config/rbac/rbac.yaml
@@ -78,3 +85,21 @@ deploy-example: ## Deploy example PodSequence
 .PHONY: clean-example
 clean-example: ## Clean up example PodSequence
 	kubectl delete -f config/samples/example-podsequence.yaml
+
+##@ Azure
+
+.PHONY: acr-build
+acr-build: ## Build image remotely in Azure Container Registry via 'az acr build'. Set ACR=<registry name>.
+	@if [ -z "$(ACR)" ]; then \
+		echo "Error: ACR is not set. Usage: make acr-build ACR=<registry name>"; \
+		exit 1; \
+	fi
+	az acr build --registry $(ACR) --image pod-sequence-controller:latest .
+
+.PHONY: aks-attach-acr
+aks-attach-acr: ## Attach ACR to AKS so the cluster can pull images. Requires AKS_NAME and AKS_RG.
+	@if [ -z "$(AKS_NAME)" ] || [ -z "$(AKS_RG)" ] || [ -z "$(ACR)" ]; then \
+		echo "Error: set AKS_NAME, AKS_RG, and ACR. Usage: make aks-attach-acr AKS_NAME=<name> AKS_RG=<rg> ACR=<registry>"; \
+		exit 1; \
+	fi
+	az aks update -n $(AKS_NAME) -g $(AKS_RG) --attach-acr $(ACR)

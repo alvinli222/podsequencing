@@ -1,4 +1,4 @@
-module github.com/example/pod-sequence-controller
+module github.com/alvinli222/podsequencing
 
 go 1.21
 

@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	schedulingv1alpha1 "github.com/example/pod-sequence-controller/api/v1alpha1"
+	schedulingv1alpha1 "github.com/alvinli222/podsequencing/api/v1alpha1"
 )
 
 const (

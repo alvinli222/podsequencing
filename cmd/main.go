@@ -12,8 +12,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	schedulingv1alpha1 "github.com/example/pod-sequence-controller/api/v1alpha1"
-	"github.com/example/pod-sequence-controller/internal/controller"
+	schedulingv1alpha1 "github.com/alvinli222/podsequencing/api/v1alpha1"
+	"github.com/alvinli222/podsequencing/internal/controller"
 )
 
 var (

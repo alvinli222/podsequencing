@@ -1,0 +1,117 @@
+alvinli@WIN-F08DFVHML7P:~/project/pod-sequence-controller$ az acr build --registry podsequencing --image pod-sequence-controller:v3 .
+Packing source code into tar to upload...
+Excluding '.gitignore' based on default ignore rules
+Excluding '.git' based on default ignore rules
+Uploading archived source code from '/tmp/build_archive_cf6e0e07189d4d87ad79fe9c9d156868.tar.gz'...
+Sending context (24.316 KiB) to registry: podsequencing...
+Queued a build with ID: ch8
+Waiting for an agent...
+2026/01/27 19:26:40 Downloading source code...
+2026/01/27 19:26:41 Finished downloading source code
+2026/01/27 19:26:41 Using acb_vol_a531404b-f066-4cdc-8d8e-239c2c0df8d0 as the home volume
+2026/01/27 19:26:41 Setting up Docker configuration...
+2026/01/27 19:26:41 Successfully set up Docker configuration
+2026/01/27 19:26:41 Logging in to registry: podsequencing.azurecr.io
+2026/01/27 19:26:42 Successfully logged into podsequencing.azurecr.io
+2026/01/27 19:26:42 Executing step ID: build. Timeout(sec): 28800, Working directory: '', Network: ''
+2026/01/27 19:26:42 Scanning for dependencies...
+2026/01/27 19:26:42 Successfully scanned dependencies
+2026/01/27 19:26:42 Launching container with name: build
+Sending build context to Docker daemon  132.1kB
+Step 1/14 : FROM golang:1.21 as builder
+1.21: Pulling from library/golang
+903681d87777: Pulling fs layer
+3cbbe86a28c2: Pulling fs layer
+6ed93aa58a52: Pulling fs layer
+1f46bd02dde3: Pulling fs layer
+54bf7053e2d9: Pulling fs layer
+532d43a0bc41: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+1f46bd02dde3: Waiting
+54bf7053e2d9: Waiting
+532d43a0bc41: Waiting
+4f4fb700ef54: Waiting
+3cbbe86a28c2: Verifying Checksum
+3cbbe86a28c2: Download complete
+903681d87777: Verifying Checksum
+903681d87777: Download complete
+6ed93aa58a52: Verifying Checksum
+6ed93aa58a52: Download complete
+532d43a0bc41: Verifying Checksum
+532d43a0bc41: Download complete
+4f4fb700ef54: Verifying Checksum
+4f4fb700ef54: Download complete
+903681d87777: Pull complete
+54bf7053e2d9: Verifying Checksum
+54bf7053e2d9: Download complete
+3cbbe86a28c2: Pull complete
+1f46bd02dde3: Verifying Checksum
+1f46bd02dde3: Download complete
+6ed93aa58a52: Pull complete
+1f46bd02dde3: Pull complete
+54bf7053e2d9: Pull complete
+532d43a0bc41: Pull complete
+4f4fb700ef54: Pull complete
+Digest: sha256:4746d26432a9117a5f58e95cb9f954ddf0de128e9d5816886514199316e4a2fb
+Status: Downloaded newer image for golang:1.21
+ ---> 246ea1ed9cdb
+Step 2/14 : WORKDIR /workspace
+ ---> Running in 60d0a7f1dd48
+Removing intermediate container 60d0a7f1dd48
+ ---> 1bb7a5a98668
+Step 3/14 : COPY go.mod go.mod
+ ---> 63a9bddf94db
+Step 4/14 : COPY go.sum go.sum
+ ---> 163f7be77955
+Step 5/14 : RUN go mod download
+ ---> Running in 2075988259af
+Removing intermediate container 2075988259af
+ ---> 5456389d8c34
+Step 6/14 : COPY cmd/ cmd/
+ ---> 2f5f6292f001
+Step 7/14 : COPY api/ api/
+ ---> 02ed35167838
+Step 8/14 : COPY internal/ internal/
+ ---> 4c2e1915cae5
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager cmd/main.go
+ ---> Running in 2b26e11c6213
+api/v1alpha1/podsequence_types.go:4:2: missing go.sum entry for module providing package k8s.io/apimachinery/pkg/apis/meta/v1 (imported by github.com/example/pod-sequence-controller/api/v1alpha1); to add:
+        go get github.com/example/pod-sequence-controller/api/v1alpha1
+api/v1alpha1/zz_generated.deepcopy.go:10:2: missing go.sum entry for module providing package k8s.io/apimachinery/pkg/runtime; to add:
+        go mod download k8s.io/apimachinery
+api/v1alpha1/groupversion_info.go:7:2: missing go.sum entry for module providing package k8s.io/apimachinery/pkg/runtime/schema (imported by github.com/example/pod-sequence-controller/api/v1alpha1); to add:
+        go get github.com/example/pod-sequence-controller/api/v1alpha1
+api/v1alpha1/groupversion_info.go:8:2: missing go.sum entry for module providing package sigs.k8s.io/controller-runtime/pkg/scheme (imported by github.com/example/pod-sequence-controller/api/v1alpha1); to add:
+        go get github.com/example/pod-sequence-controller/api/v1alpha1
+internal/controller/podsequence_controller.go:8:2: missing go.sum entry for module providing package k8s.io/api/core/v1 (imported by github.com/example/pod-sequence-controller/internal/controller); to add:
+        go get github.com/example/pod-sequence-controller/internal/controller
+internal/controller/podsequence_controller.go:9:2: missing go.sum entry for module providing package k8s.io/apimachinery/pkg/api/errors (imported by github.com/example/pod-sequence-controller/internal/controller); to add:
+        go get github.com/example/pod-sequence-controller/internal/controller
+internal/controller/podsequence_controller.go:10:2: missing go.sum entry for module providing package k8s.io/apimachinery/pkg/labels (imported by github.com/example/pod-sequence-controller/internal/controller); to add:
+        go get github.com/example/pod-sequence-controller/internal/controller
+internal/controller/podsequence_controller.go:13:2: missing go.sum entry for module providing package k8s.io/apimachinery/pkg/types (imported by github.com/example/pod-sequence-controller/internal/controller); to add:
+        go get github.com/example/pod-sequence-controller/internal/controller
+internal/controller/podsequence_controller.go:14:2: missing go.sum entry for module providing package k8s.io/client-go/tools/record (imported by github.com/example/pod-sequence-controller/internal/controller); to add:
+        go get github.com/example/pod-sequence-controller/internal/controller
+internal/controller/podsequence_controller.go:15:2: missing go.sum entry for module providing package sigs.k8s.io/controller-runtime; to add:
+        go mod download sigs.k8s.io/controller-runtime
+internal/controller/podsequence_controller.go:16:2: missing go.sum entry for module providing package sigs.k8s.io/controller-runtime/pkg/client (imported by github.com/example/pod-sequence-controller/internal/controller); to add:
+        go get github.com/example/pod-sequence-controller/internal/controller
+internal/controller/podsequence_controller.go:17:2: missing go.sum entry for module providing package sigs.k8s.io/controller-runtime/pkg/log (imported by github.com/example/pod-sequence-controller/internal/controller); to add:
+        go get github.com/example/pod-sequence-controller/internal/controller
+cmd/main.go:8:2: missing go.sum entry for module providing package k8s.io/apimachinery/pkg/util/runtime; to add:
+        go mod download k8s.io/apimachinery
+cmd/main.go:9:2: missing go.sum entry for module providing package k8s.io/client-go/kubernetes/scheme; to add:
+        go mod download k8s.io/client-go
+cmd/main.go:10:2: missing go.sum entry for module providing package k8s.io/client-go/plugin/pkg/client/auth; to add:
+        go mod download k8s.io/client-go
+cmd/main.go:12:2: missing go.sum entry for module providing package sigs.k8s.io/controller-runtime/pkg/healthz; to add:
+        go mod download sigs.k8s.io/controller-runtime
+cmd/main.go:13:2: missing go.sum entry for module providing package sigs.k8s.io/controller-runtime/pkg/log/zap; to add:
+        go mod download sigs.k8s.io/controller-runtime
+The command '/bin/sh -c CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager cmd/main.go' returned a non-zero code: 1
+2026/01/27 19:27:18 Container failed during run: build. No retries remaining.
+failed to run step ID: build: exit status 1
+
+Run ID: ch8 failed after 38s. Error: failed during run, err: exit status 1
+Run failed
