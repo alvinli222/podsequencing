@@ -2,22 +2,22 @@ alvinli@WIN-F08DFVHML7P:~/project/pod-sequence-controller$ az acr build --regist
 Packing source code into tar to upload...
 Excluding '.gitignore' based on default ignore rules
 Excluding '.git' based on default ignore rules
-Uploading archived source code from '/tmp/build_archive_24d092de7ec1415c98c83fbfb62e1025.tar.gz'...
-Sending context (30.754 KiB) to registry: podsequencing...
-Queued a build with ID: chc
+Uploading archived source code from '/tmp/build_archive_04e6666251d74da4b6e544b269a1c286.tar.gz'...
+Sending context (31.168 KiB) to registry: podsequencing...
+Queued a build with ID: chd
 Waiting for an agent...
-2026/01/27 19:41:09 Downloading source code...
-2026/01/27 19:41:10 Finished downloading source code
-2026/01/27 19:41:10 Using acb_vol_a6b660f1-79f5-421f-9702-1d7df637bcf4 as the home volume
-2026/01/27 19:41:10 Setting up Docker configuration...
-2026/01/27 19:41:11 Successfully set up Docker configuration
-2026/01/27 19:41:11 Logging in to registry: podsequencing.azurecr.io
-2026/01/27 19:41:11 Successfully logged into podsequencing.azurecr.io
-2026/01/27 19:41:11 Executing step ID: build. Timeout(sec): 28800, Working directory: '', Network: ''
-2026/01/27 19:41:11 Scanning for dependencies...
-2026/01/27 19:41:12 Successfully scanned dependencies
-2026/01/27 19:41:12 Launching container with name: build
-Sending build context to Docker daemon  149.5kB
+2026/01/27 19:56:56 Downloading source code...
+2026/01/27 19:56:57 Finished downloading source code
+2026/01/27 19:56:57 Using acb_vol_f55ffbe9-01e2-4949-a850-7f1d0c931ef9 as the home volume
+2026/01/27 19:56:57 Setting up Docker configuration...
+2026/01/27 19:56:58 Successfully set up Docker configuration
+2026/01/27 19:56:58 Logging in to registry: podsequencing.azurecr.io
+2026/01/27 19:56:58 Successfully logged into podsequencing.azurecr.io
+2026/01/27 19:56:58 Executing step ID: build. Timeout(sec): 28800, Working directory: '', Network: ''
+2026/01/27 19:56:58 Scanning for dependencies...
+2026/01/27 19:56:59 Successfully scanned dependencies
+2026/01/27 19:56:59 Launching container with name: build
+Sending build context to Docker daemon    149kB
 Step 1/13 : FROM golang:1.21 as builder
 1.21: Pulling from library/golang
 903681d87777: Pulling fs layer
@@ -27,26 +27,27 @@ Step 1/13 : FROM golang:1.21 as builder
 54bf7053e2d9: Pulling fs layer
 532d43a0bc41: Pulling fs layer
 4f4fb700ef54: Pulling fs layer
-1f46bd02dde3: Waiting
 54bf7053e2d9: Waiting
+1f46bd02dde3: Waiting
 532d43a0bc41: Waiting
 4f4fb700ef54: Waiting
+3cbbe86a28c2: Verifying Checksum
+3cbbe86a28c2: Download complete
 903681d87777: Verifying Checksum
 903681d87777: Download complete
 6ed93aa58a52: Verifying Checksum
 6ed93aa58a52: Download complete
-3cbbe86a28c2: Verifying Checksum
-3cbbe86a28c2: Download complete
 532d43a0bc41: Verifying Checksum
 532d43a0bc41: Download complete
 4f4fb700ef54: Verifying Checksum
 4f4fb700ef54: Download complete
 903681d87777: Pull complete
+1f46bd02dde3: Verifying Checksum
+1f46bd02dde3: Download complete
 3cbbe86a28c2: Pull complete
 54bf7053e2d9: Verifying Checksum
 54bf7053e2d9: Download complete
 6ed93aa58a52: Pull complete
-1f46bd02dde3: Download complete
 1f46bd02dde3: Pull complete
 54bf7053e2d9: Pull complete
 532d43a0bc41: Pull complete
@@ -55,23 +56,23 @@ Digest: sha256:4746d26432a9117a5f58e95cb9f954ddf0de128e9d5816886514199316e4a2fb
 Status: Downloaded newer image for golang:1.21
  ---> 246ea1ed9cdb
 Step 2/13 : WORKDIR /workspace
- ---> Running in 8942575e938a
-Removing intermediate container 8942575e938a
- ---> 07a542b5e746
+ ---> Running in 6fe749b02438
+Removing intermediate container 6fe749b02438
+ ---> 3cd5a2d2f49d
 Step 3/13 : COPY go.mod go.mod
- ---> a09f8abab8eb
+ ---> f6b27cdecb78
 Step 4/13 : RUN go env -w GOPROXY=https://proxy.golang.org,direct && go mod download
- ---> Running in 9826b078f567
-Removing intermediate container 9826b078f567
- ---> 65a39e234b60
+ ---> Running in 88228553a989
+Removing intermediate container 88228553a989
+ ---> 4e83fb725492
 Step 5/13 : COPY cmd/ cmd/
- ---> f8687020c23f
+ ---> 1a1e024f5b49
 Step 6/13 : COPY api/ api/
- ---> 867ffae096be
+ ---> 307b06c58e91
 Step 7/13 : COPY internal/ internal/
- ---> b7df7fd87155
+ ---> c506649acfe5
 Step 8/13 : RUN rm -f go.sum && go mod tidy && go mod verify && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager cmd/main.go
- ---> Running in 3c55bc92800e
+ ---> Running in d910f94340a1
 go: downloading github.com/stretchr/testify v1.8.2
 go: downloading github.com/onsi/ginkgo/v2 v2.11.0
 go: downloading github.com/onsi/gomega v1.27.10
@@ -95,14 +96,11 @@ go: downloading github.com/kr/text v0.2.0
 go: downloading github.com/rogpeppe/go-internal v1.10.0
 go: downloading github.com/google/pprof v0.0.0-20210720184732-4bb14d4b1be1
 all modules verified
-# github.com/alvinli222/podsequencing/api/v1alpha1
-api/v1alpha1/zz_generated.deepcopy.go:75:8: in.Sequence undefined (type *PodSequenceSpec has no field or method Sequence)
-api/v1alpha1/zz_generated.deepcopy.go:76:18: in.Sequence undefined (type *PodSequenceSpec has no field or method Sequence)
-api/v1alpha1/zz_generated.deepcopy.go:76:33: out.Sequence undefined (type *PodSequenceSpec has no field or method Sequence)
-
+# github.com/alvinli222/podsequencing/internal/controller
+internal/controller/podsequence_controller.go:10:2: "k8s.io/apimachinery/pkg/labels" imported and not used
 The command '/bin/sh -c rm -f go.sum && go mod tidy && go mod verify && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager cmd/main.go' returned a non-zero code: 1
-2026/01/27 19:43:09 Container failed during run: build. No retries remaining.
+2026/01/27 19:58:52 Container failed during run: build. No retries remaining.
 failed to run step ID: build: exit status 1
 
-Run ID: chc failed after 2m1s. Error: failed during run, err: exit status 1
+Run ID: chd failed after 1m57s. Error: failed during run, err: exit status 1
 Run failed
