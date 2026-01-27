@@ -2,18 +2,18 @@
 FROM golang:1.21 as builder
 
 WORKDIR /workspace
-# Copy only go.mod (go.sum will be generated inside the image)
+# Copy only go.mod (go.sum generated inside the image)
 COPY go.mod go.mod
 # Download module dependencies based on go.mod to warm the module cache
 RUN go env -w GOPROXY=https://proxy.golang.org,direct && go mod download
 
-# Copy the go source
+# Copy the go source (and regenerate go.sum later)
 COPY cmd/ cmd/
 COPY api/ api/
 COPY internal/ internal/
 
 # Regenerate go.sum with full source context, verify, then build
-RUN go mod tidy && go mod verify && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager cmd/main.go
+RUN rm -f go.sum && go mod tidy && go mod verify && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager cmd/main.go
 
 # Use distroless as minimal base image to package the manager binary
 FROM gcr.io/distroless/static:nonroot
