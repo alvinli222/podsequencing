@@ -11,6 +11,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	schedulingv1alpha1 "github.com/alvinli222/podsequencing/api/v1alpha1"
 	"github.com/alvinli222/podsequencing/internal/controller"
@@ -46,12 +47,12 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		MetricsBindAddress:     metricsAddr,
-		Port:                   9443,
+		Scheme:             scheme,
+		Metrics:            ctrl.Metrics{BindAddress: metricsAddr},
+		WebhookServer:      webhook.NewServer(webhook.Options{Port: 9443}),
 		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "pod-sequence-controller.example.com",
+		LeaderElection:     enableLeaderElection,
+		LeaderElectionID:   "pod-sequence-controller.example.com",
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
