@@ -16,6 +16,7 @@ import (
 
 	schedulingv1alpha1 "github.com/alvinli222/podsequencing/api/v1alpha1"
 	"github.com/alvinli222/podsequencing/internal/controller"
+	internalwebhook "github.com/alvinli222/podsequencing/internal/webhook"
 )
 
 var (
@@ -68,6 +69,14 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "PodSequence")
 		os.Exit(1)
 	}
+
+	// Setup webhook
+	setupLog.Info("setting up webhook")
+	mgr.GetWebhookServer().Register("/mutate-v1-pod", &webhook.Admission{
+		Handler: &internalwebhook.PodSequenceMutator{
+			Client: mgr.GetClient(),
+		},
+	})
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")

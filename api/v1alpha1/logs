@@ -1,3 +1,5 @@
+alvinli@WIN-F08DFVHML7P:/mnt/c/Users/alvinli/pod-sequence-controller$ kubectl rollout restart deployment pod-sequence-controller -n pod-sequence-system
+deployment.apps/pod-sequence-controller restarted
 alvinli@WIN-F08DFVHML7P:/mnt/c/Users/alvinli/pod-sequence-controller$ kubectl logs -n pod-sequence-system -l app=pod-sequence-controller --tail=50
 2026-01-28T21:39:15Z    INFO    setup   starting manager
 2026-01-28T21:39:15Z    INFO    controller-runtime.metrics      Starting metrics server
@@ -39,3 +41,7 @@ sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller).Start.func2
 2026-01-28T21:40:43Z    INFO    Tainted node for group sequencing       {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "PodSequence": {"name":"test-node-scoped-sequence","namespace":"default"}, "namespace": "default", "name": "test-node-scoped-sequence", "reconcileID": "9c1765e4-e8a1-476c-83b2-516f6d9c87c5", "node": "aks-testnodes-14560944-vmss000001", "taint": "podsequence.example.com/test-node-scoped-sequence-group-2-blocked"}
 2026-01-28T21:40:43Z    INFO    Tainted node for group sequencing       {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "PodSequence": {"name":"test-node-scoped-sequence","namespace":"default"}, "namespace": "default", "name": "test-node-scoped-sequence", "reconcileID": "9c1765e4-e8a1-476c-83b2-516f6d9c87c5", "node": "aks-agentpool-33679307-vmss000000", "taint": "podsequence.example.com/test-node-scoped-sequence-group-2-blocked"}
 2026-01-28T21:40:43Z    INFO    Tainted node for group sequencing       {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "PodSequence": {"name":"test-node-scoped-sequence","namespace":"default"}, "namespace": "default", "name": "test-node-scoped-sequence", "reconcileID": "9c1765e4-e8a1-476c-83b2-516f6d9c87c5", "node": "aks-agentpool-33679307-vmss000001", "taint": "podsequence.example.com/test-node-scoped-sequence-group-2-blocked"}
+alvinli@WIN-F08DFVHML7P:/mnt/c/Users/alvinli/pod-sequence-controller$ kubectl get podsequence
+No resources found in default namespace.
+alvinli@WIN-F08DFVHML7P:/mnt/c/Users/alvinli/pod-sequence-controller$ kubectl get podsequence -A
+No resources found

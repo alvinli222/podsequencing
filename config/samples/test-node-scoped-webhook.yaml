@@ -1,0 +1,170 @@
+apiVersion: scheduling.example.com/v1alpha1
+kind: PodSequence
+metadata:
+  name: test-node-scoped-sequence
+  namespace: default
+spec:
+  scope: Node
+  podGroups:
+  - name: "Test Pod 1"
+    podSelector:
+      matchLabels:
+        app: test-pod-1
+  - name: "Test Pod 2"
+    podSelector:
+      matchLabels:
+        app: test-pod-2
+  - name: "Test Pod 3"
+    podSelector:
+      matchLabels:
+        app: test-pod-3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-pod-1
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: test-pod-1
+  template:
+    metadata:
+      labels:
+        app: test-pod-1
+      annotations:
+        podsequence.example.com/name: "test-node-scoped-sequence"
+        podsequence.example.com/group: "0"
+    spec:
+      schedulingGates:
+      - name: podsequence.example.com/sequence-gate
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.azure.com/mode
+                operator: NotIn
+                values:
+                - system
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - test-pod-1
+              topologyKey: topology.kubernetes.io/zone
+      containers:
+      - name: test-container
+        image: busybox:latest
+        command: ["sh", "-c", "echo 'Pod 1 started'; sleep 3600"]
+        readinessProbe:
+          exec:
+            command: ["sh", "-c", "sleep 120 && exit 0"]
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-pod-2
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: test-pod-2
+  template:
+    metadata:
+      labels:
+        app: test-pod-2
+      annotations:
+        podsequence.example.com/name: "test-node-scoped-sequence"
+        podsequence.example.com/group: "1"
+    spec:
+      schedulingGates:
+      - name: podsequence.example.com/sequence-gate
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.azure.com/mode
+                operator: NotIn
+                values:
+                - system
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - test-pod-2
+              topologyKey: topology.kubernetes.io/zone
+      containers:
+      - name: test-container
+        image: busybox:latest
+        command: ["sh", "-c", "echo 'Pod 2 started'; sleep 3600"]
+        readinessProbe:
+          exec:
+            command: ["sh", "-c", "sleep 120 && exit 0"]
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-pod-3
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: test-pod-3
+  template:
+    metadata:
+      labels:
+        app: test-pod-3
+      annotations:
+        podsequence.example.com/name: "test-node-scoped-sequence"
+        podsequence.example.com/group: "2"
+    spec:
+      schedulingGates:
+      - name: podsequence.example.com/sequence-gate
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.azure.com/mode
+                operator: NotIn
+                values:
+                - system
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - test-pod-3
+              topologyKey: topology.kubernetes.io/zone
+      containers:
+      - name: test-container
+        image: busybox:latest
+        command: ["sh", "-c", "echo 'Pod 3 started'; sleep 3600"]
+        readinessProbe:
+          exec:
+            command: ["sh", "-c", "sleep 120 && exit 0"]
+          initialDelaySeconds: 5
+          periodSeconds: 10

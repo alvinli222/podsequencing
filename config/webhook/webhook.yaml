@@ -1,0 +1,39 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: podsequence-mutating-webhook
+webhooks:
+- name: mpod.podsequence.example.com
+  clientConfig:
+    service:
+      name: pod-sequence-webhook
+      namespace: pod-sequence-system
+      path: /mutate-v1-pod
+    caBundle: "" # Will be injected by cert-manager or manually
+  rules:
+  - operations: ["CREATE"]
+    apiGroups: [""]
+    apiVersions: ["v1"]
+    resources: ["pods"]
+  admissionReviewVersions: ["v1"]
+  sideEffects: None
+  failurePolicy: Ignore
+  namespaceSelector:
+    matchExpressions:
+    - key: podsequence-enabled
+      operator: In
+      values: ["true"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pod-sequence-webhook
+  namespace: pod-sequence-system
+spec:
+  selector:
+    app: pod-sequence-controller
+  ports:
+  - port: 443
+    targetPort: 9443
+    protocol: TCP

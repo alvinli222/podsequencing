@@ -111,6 +111,14 @@ spec:
         app: pod-sequence-controller
     spec:
       serviceAccountName: pod-sequence-controller
+      tolerations:
+      - key: podsequence.example.com
+        operator: Exists
+        effect: NoSchedule
+      volumes:
+      - name: cert
+        secret:
+          secretName: webhook-server-cert
       containers:
       - name: manager
         image: podsequencing.azurecr.io/pod-sequence-controller:latest
@@ -126,6 +134,13 @@ spec:
         - containerPort: 8081
           name: health
           protocol: TCP
+        - containerPort: 9443
+          name: webhook
+          protocol: TCP
+        volumeMounts:
+        - name: cert
+          mountPath: /tmp/k8s-webhook-server/serving-certs
+          readOnly: true
         livenessProbe:
           httpGet:
             path: /healthz
