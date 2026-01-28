@@ -87,26 +87,101 @@ podGroups:
 - kubectl configured to access your cluster
 - Go 1.21+ (for building from source)
 
-### Deploy the Controller
+### Choose Your Deployment Mode
 
-1. **Install the CRD**:
-   ```bash
-   kubectl apply -f config/crd/podsequence-crd.yaml
-   ```
+The controller offers two deployment modes:
 
-2. **Deploy the controller**:
-   ```bash
-   kubectl apply -f config/rbac/rbac.yaml
-   ```
+#### 🚀 **Lite Mode** (Recommended for most users)
+**Simple deployment with cluster-scoped sequencing only**
 
-3. **Build and load the controller image** (if running locally):
-   ```bash
-   make docker-build
-   # For kind clusters
-   kind load docker-image pod-sequence-controller:latest
-   # For minikube
-   minikube image load pod-sequence-controller:latest
-   ```
+✅ No webhook required  
+✅ No certificates needed  
+✅ Simpler RBAC (no node permissions)  
+✅ Perfect for application startup sequences  
+
+```bash
+# 1. Install the CRD
+kubectl apply -f config/crd/podsequence-crd.yaml
+
+# 2. Deploy the controller (lite mode)
+kubectl apply -f config/rbac/rbac-lite.yaml
+```
+
+**Supports:** `scope: Cluster` only  
+**Use for:** Database → App → Frontend sequences, StatefulSet ordering, pipeline stages
+
+📚 [Lite Mode Documentation](config/rbac/README-LITE.md)
+
+---
+
+#### ⚡ **Full Mode** (Advanced)
+**Complete deployment with node-scoped sequencing**
+
+Includes all Lite Mode features, plus:  
+✅ Per-node sequencing with taints  
+✅ Webhook for automatic toleration injection  
+✅ Support for DaemonSet dependencies  
+
+Requires:
+- Certificate generation (OpenSSL)
+- Webhook configuration
+- Node management permissions
+
+```bash
+# 1. Install the CRD
+kubectl apply -f config/crd/podsequence-crd.yaml
+
+# 2. Generate webhook certificates
+chmod +x config/webhook/generate-certs.sh
+./config/webhook/generate-certs.sh
+
+# 3. Deploy webhook configuration
+kubectl apply -f config/webhook/webhook.yaml
+
+# 4. Patch webhook with CA bundle (command from step 2)
+kubectl patch mutatingwebhookconfiguration podsequence-mutating-webhook \
+  --type='json' -p='[{"op": "replace", "path": "/webhooks/0/clientConfig/caBundle", "value":"<CA_BUNDLE>"}]'
+
+# 5. Deploy the controller (full mode)
+kubectl apply -f config/rbac/rbac.yaml
+```
+
+**Supports:** Both `scope: Cluster` and `scope: Node`  
+**Use for:** CSI drivers, device plugins, node-level dependencies, DaemonSets
+
+📚 [Webhook Setup Guide](config/webhook/README.md)
+
+---
+
+### Which Mode Do I Need?
+
+| You Need | Mode |
+|----------|------|
+| Wait for database before app | **Lite** |
+| Sequential StatefulSet startup | **Lite** |
+| Multi-tier application dependencies | **Lite** |
+| Pipeline/workflow stages | **Lite** |
+| CSI driver before storage pods | **Full** |
+| Device plugin before GPU workloads | **Full** |
+| Per-node DaemonSet dependencies | **Full** |
+
+**Default recommendation: Start with Lite Mode.** Upgrade to Full Mode later if you need node-scoped sequencing.
+
+### Build Custom Image (Optional)
+### Build Custom Image (Optional)
+
+If you want to build from source:
+
+```bash
+# Build the image
+make docker-build
+
+# For kind clusters
+kind load docker-image pod-sequence-controller:latest
+
+# For minikube
+minikube image load pod-sequence-controller:latest
+```
 
 ## Usage
 

@@ -27,8 +27,9 @@ const (
 // PodSequenceReconciler reconciles a PodSequence object
 type PodSequenceReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Scheme         *runtime.Scheme
+	Recorder       record.EventRecorder
+	WebhookEnabled bool
 }
 
 // +kubebuilder:rbac:groups=scheduling.example.com,resources=podsequences,verbs=get;list;watch;create;update;patch;delete
@@ -66,6 +67,18 @@ func (r *PodSequenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	scope := podSeq.Spec.Scope
 	if scope == "" {
 		scope = schedulingv1alpha1.PodSequenceScopeCluster
+	}
+
+	// Reject node-scoped sequences if webhook is not enabled
+	if scope == schedulingv1alpha1.PodSequenceScopeNode && !r.WebhookEnabled {
+		podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseFailed
+		podSeq.Status.Message = "Node-scoped sequencing requires webhook to be enabled. Use scope: Cluster or redeploy with --enable-webhook flag."
+		if err := r.Status().Update(ctx, podSeq); err != nil {
+			log.Error(err, "Failed to update status")
+			return ctrl.Result{}, err
+		}
+		r.Recorder.Event(podSeq, corev1.EventTypeWarning, "WebhookRequired", "Node-scoped sequencing requires webhook")
+		return ctrl.Result{}, nil
 	}
 
 	// Initialize status if needed

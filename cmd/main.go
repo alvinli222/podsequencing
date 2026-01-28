@@ -33,12 +33,16 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var enableWebhook bool
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.BoolVar(&enableWebhook, "enable-webhook", false,
+		"Enable webhook server for node-scoped sequencing. "+
+			"If disabled, only cluster-scoped sequencing is supported (simpler deployment, no certificates needed).")
 
 	opts := zap.Options{
 		Development: true,
@@ -48,10 +52,16 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
+	webhookServerOptions := webhook.Options{Port: 9443}
+	if !enableWebhook {
+		setupLog.Info("Webhook disabled - only cluster-scoped sequencing supported")
+		webhookServerOptions.Port = 0 // Disable webhook server
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:             scheme,
 		Metrics:            server.Options{BindAddress: metricsAddr},
-		WebhookServer:      webhook.NewServer(webhook.Options{Port: 9443}),
+		WebhookServer:      webhook.NewServer(webhookServerOptions),
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:     enableLeaderElection,
 		LeaderElectionID:   "pod-sequence-controller.example.com",
@@ -62,21 +72,26 @@ func main() {
 	}
 
 	if err = (&controller.PodSequenceReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("pod-sequence-controller"),
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		Recorder:       mgr.GetEventRecorderFor("pod-sequence-controller"),
+		WebhookEnabled: enableWebhook,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PodSequence")
 		os.Exit(1)
 	}
 
-	// Setup webhook
-	setupLog.Info("setting up webhook")
-	mgr.GetWebhookServer().Register("/mutate-v1-pod", &webhook.Admission{
-		Handler: &internalwebhook.PodSequenceMutator{
-			Client: mgr.GetClient(),
-		},
-	})
+	// Setup webhook only if enabled
+	if enableWebhook {
+		setupLog.Info("setting up webhook for node-scoped sequencing")
+		mgr.GetWebhookServer().Register("/mutate-v1-pod", &webhook.Admission{
+			Handler: &internalwebhook.PodSequenceMutator{
+				Client: mgr.GetClient(),
+			},
+		})
+	} else {
+		setupLog.Info("webhook disabled - node-scoped PodSequences will be rejected")
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")

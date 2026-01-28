@@ -58,16 +58,6 @@ rules:
   - create
   - patch
 - apiGroups:
-  - ""
-  resources:
-  - nodes
-  verbs:
-  - get
-  - list
-  - watch
-  - update
-  - patch
-- apiGroups:
   - coordination.k8s.io
   resources:
   - leases
@@ -111,14 +101,6 @@ spec:
         app: pod-sequence-controller
     spec:
       serviceAccountName: pod-sequence-controller
-      tolerations:
-      - key: podsequence.example.com
-        operator: Exists
-        effect: NoSchedule
-      volumes:
-      - name: cert
-        secret:
-          secretName: webhook-server-cert
       containers:
       - name: manager
         image: podsequencing.azurecr.io/pod-sequence-controller:latest
@@ -127,7 +109,7 @@ spec:
         - /manager
         args:
         - --leader-elect
-        - --enable-webhook
+        # Note: --enable-webhook is NOT set, so only cluster-scoped is supported
         ports:
         - containerPort: 8080
           name: metrics
@@ -135,13 +117,6 @@ spec:
         - containerPort: 8081
           name: health
           protocol: TCP
-        - containerPort: 9443
-          name: webhook
-          protocol: TCP
-        volumeMounts:
-        - name: cert
-          mountPath: /tmp/k8s-webhook-server/serving-certs
-          readOnly: true
         livenessProbe:
           httpGet:
             path: /healthz
