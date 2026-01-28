@@ -1,0 +1,170 @@
+# Test example: Node-scoped sequencing with multi-replica deployments across 2 zones
+# Each node sequences independently: test-pod-1 → test-pod-2 → test-pod-3
+# Each deployment has 2 replicas spread across zones
+apiVersion: scheduling.example.com/v1alpha1
+kind: PodSequence
+metadata:
+  name: test-node-scoped-sequence
+  namespace: default
+spec:
+  scope: Node  # Node-scoped: each node sequences independently
+  podGroups:
+    - name: "Test Pod 1"
+      podSelector:
+        matchLabels:
+          app: test-node-scoped
+          tier: pod1
+    - name: "Test Pod 2"
+      podSelector:
+        matchLabels:
+          app: test-node-scoped
+          tier: pod2
+    - name: "Test Pod 3"
+      podSelector:
+        matchLabels:
+          app: test-node-scoped
+          tier: pod3
+---
+# Deployment 1: Test Pod 1 (2 replicas across 2 zones, 2 minute startup)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-pod-1
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: test-node-scoped
+      tier: pod1
+  template:
+    metadata:
+      labels:
+        app: test-node-scoped
+        tier: pod1
+    spec:
+      schedulingGates:
+      - name: podsequence.example.com/sequence-gate
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: test-node-scoped
+                tier: pod1
+            topologyKey: topology.kubernetes.io/zone
+      containers:
+      - name: app
+        image: busybox:latest
+        command:
+        - sh
+        - -c
+        - |
+          echo "Test Pod 1 starting - ready in 2 minutes"
+          sleep 120
+          echo "Test Pod 1 is now ready"
+          while true; do sleep 30; done
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - test -f /tmp/ready || ([ $(( $(date +%s) - $(stat -c %Y /proc/1) )) -ge 120 ] && touch /tmp/ready && exit 0 || exit 1)
+          initialDelaySeconds: 10
+          periodSeconds: 10
+---
+# Deployment 2: Test Pod 2 (2 replicas across 2 zones, 2 minute startup)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-pod-2
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: test-node-scoped
+      tier: pod2
+  template:
+    metadata:
+      labels:
+        app: test-node-scoped
+        tier: pod2
+    spec:
+      schedulingGates:
+      - name: podsequence.example.com/sequence-gate
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: test-node-scoped
+                tier: pod2
+            topologyKey: topology.kubernetes.io/zone
+      containers:
+      - name: app
+        image: busybox:latest
+        command:
+        - sh
+        - -c
+        - |
+          echo "Test Pod 2 starting - ready in 2 minutes"
+          sleep 120
+          echo "Test Pod 2 is now ready"
+          while true; do sleep 30; done
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - test -f /tmp/ready || ([ $(( $(date +%s) - $(stat -c %Y /proc/1) )) -ge 120 ] && touch /tmp/ready && exit 0 || exit 1)
+          initialDelaySeconds: 10
+          periodSeconds: 10
+---
+# Deployment 3: Test Pod 3 (2 replicas across 2 zones, 2 minute startup)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-pod-3
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: test-node-scoped
+      tier: pod3
+  template:
+    metadata:
+      labels:
+        app: test-node-scoped
+        tier: pod3
+    spec:
+      schedulingGates:
+      - name: podsequence.example.com/sequence-gate
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: test-node-scoped
+                tier: pod3
+            topologyKey: topology.kubernetes.io/zone
+      containers:
+      - name: app
+        image: busybox:latest
+        command:
+        - sh
+        - -c
+        - |
+          echo "Test Pod 3 starting - ready in 2 minutes"
+          sleep 120
+          echo "Test Pod 3 is now ready"
+          while true; do sleep 30; done
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - test -f /tmp/ready || ([ $(( $(date +%s) - $(stat -c %Y /proc/1) )) -ge 120 ] && touch /tmp/ready && exit 0 || exit 1)
+          initialDelaySeconds: 10
+          periodSeconds: 10

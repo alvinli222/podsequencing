@@ -357,8 +357,16 @@ func (r *PodSequenceReconciler) reconcileNodeScoped(ctx context.Context, podSeq 
 
 		nodeStatus.ReadyPodsInCurrentGroup = readyCount
 
+		// If no pods found for this group on this node yet, wait
+		if totalPodsOnNode == 0 {
+			log.Info("No pods found in current group on node, waiting", "node", nodeName, "group", groupName)
+			nodeStatus.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
+			needsRequeue = true
+			continue
+		}
+
 		// Check if all pods in current group on this node are ready
-		if totalPodsOnNode > 0 && readyCount == totalPodsOnNode {
+		if readyCount == totalPodsOnNode {
 			// All pods on this node are ready, move to next group
 			nodeStatus.CurrentIndex++
 			nodeStatus.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
