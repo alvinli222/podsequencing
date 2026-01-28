@@ -1,7 +1,8 @@
-alvinli@WIN-F08DFVHML7P:/mnt/c/Users/alvinli/pod-sequence-controller$ kubectl logs -n pod-sequence-system -l app=pod-sequence-controller --tail=150
-2026-01-28T20:37:25Z    INFO    setup   starting manager
-2026-01-28T20:37:25Z    INFO    starting server {"kind": "health probe", "addr": "[::]:8081"}
-2026-01-28T20:37:25Z    INFO    controller-runtime.metrics      Starting metrics server
-2026-01-28T20:37:25Z    INFO    controller-runtime.metrics      Serving metrics server  {"bindAddress": ":8080", "secure": false}
-I0128 20:37:25.967080       1 leaderelection.go:250] attempting to acquire leader lease pod-sequence-system/pod-sequence-controller.example.com...
-I0128 20:37:53.595697       1 leaderelection.go:260] successfully acquired lease pod-sequence-system/pod-sequence-controller.example.com
+all modules verified
+# github.com/alvinli222/podsequencing/internal/controller
+internal/controller/podsequence_controller.go:364:50: syntax error: unexpected %, expected }
+internal/controller/podsequence_controller.go:364:84: newline in string
+internal/controller/podsequence_controller.go:401:2: syntax error: non-declaration statement outside function body
+The command '/bin/sh -c rm -f go.sum && go mod tidy && go mod verify && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager cmd/main.go' returned a non-zero code: 1
+2026/01/28 21:25:28 Container failed during run: build. No retries remaining.
+failed to run step ID: build: exit status 1

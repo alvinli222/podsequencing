@@ -361,8 +361,8 @@ func (r *PodSequenceReconciler) reconcileNodeScoped(ctx context.Context, podSeq 
 	}
 
 	// For each node with ready pods in current group, remove the NEXT group's taint
-	if currentIndex+1 < len(podSeq.Spec.PodGroups) {%s-group-%d-blocked", podSeq.Name
-		nextGroupTaint := fmt.Sprintf("podsequence.example.com/group-%d-blocked", currentIndex+1)
+	if currentIndex+1 < len(podSeq.Spec.PodGroups) {
+		nextGroupTaint := fmt.Sprintf("podsequence.example.com/%s-group-%d-blocked", podSeq.Name, currentIndex+1)
 		
 		for nodeName, nodeStatus := range nodeStatusMap {
 			if nodeStatus.ReadyPodsInCurrentGroup > 0 {
