@@ -567,7 +567,7 @@ func startsWith(s, prefix string) bool {
 }
 
 // handleDeletion handles cleanup when PodSequence is deleted
-func (r *PodSequenceReconciler) handleDeletion(ctx context.Context, podSeq *schedulingv1alpha1.PodSequence, scope string) (ctrl.Result, error) {
+func (r *PodSequenceReconciler) handleDeletion(ctx context.Context, podSeq *schedulingv1alpha1.PodSequence, scope schedulingv1alpha1.PodSequenceScope) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
 	// Clean up taints if this is a node-scoped sequence
