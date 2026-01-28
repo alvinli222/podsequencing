@@ -1,9 +1,41 @@
-# github.com/alvinli222/podsequencing/internal/controller
-internal/controller/podsequence_controller.go:91:40: cannot use scope (variable of type "github.com/alvinli222/podsequencing/api/v1alpha1".PodSequenceScope) as string value in argument to r.handleDeletion
-internal/controller/podsequence_controller.go:574:14: invalid operation: scope == schedulingv1alpha1.PodSequenceScopeNode (mismatched types string and "github.com/alvinli222/podsequencing/api/v1alpha1".PodSequenceScope)
-The command '/bin/sh -c rm -f go.sum && go mod tidy && go mod verify && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager cmd/main.go' returned a non-zero code: 1
-2026/01/28 21:59:23 Container failed during run: build. No retries remaining.
-failed to run step ID: build: exit status 1
-
-Run ID: chv failed after 1m55s. Error: failed during run, err: exit status 1
-Run failed
+alvinli@WIN-F08DFVHML7P:/mnt/c/Users/alvinli/pod-sequence-controller$ kubectl logs -n pod-sequence-system -l app=pod-sequence-controller --tail=50
+2026-01-28T21:39:15Z    INFO    setup   starting manager
+2026-01-28T21:39:15Z    INFO    controller-runtime.metrics      Starting metrics server
+2026-01-28T21:39:15Z    INFO    controller-runtime.metrics      Serving metrics server  {"bindAddress": ":8080", "secure": false}
+I0128 21:39:15.106177       1 leaderelection.go:250] attempting to acquire leader lease pod-sequence-system/pod-sequence-controller.example.com...
+2026-01-28T21:39:15Z    INFO    starting server {"kind": "health probe", "addr": "[::]:8081"}
+I0128 21:39:44.806106       1 leaderelection.go:260] successfully acquired lease pod-sequence-system/pod-sequence-controller.example.com
+2026-01-28T21:39:44Z    DEBUG   events  pod-sequence-controller-69449dbb87-v7cqd_c5adb59c-b800-44cd-b74f-8f60c595ec5c became leader     {"type": "Normal", "object": {"kind":"Lease","namespace":"pod-sequence-system","name":"pod-sequence-controller.example.com","uid":"24249c8a-ea71-4ff0-81e1-e78584a5e404","apiVersion":"coordination.k8s.io/v1","resourceVersion":"852147"}, "reason": "LeaderElection"}
+2026-01-28T21:39:44Z    INFO    Starting EventSource    {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "source": "kind source: *v1alpha1.PodSequence"}
+2026-01-28T21:39:44Z    INFO    Starting EventSource    {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "source": "kind source: *v1.Pod"}
+2026-01-28T21:39:44Z    INFO    Starting Controller     {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence"}
+2026-01-28T21:39:44Z    INFO    Starting workers        {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "worker count": 1}
+2026-01-28T21:40:42Z    DEBUG   events  Pod sequence initialized        {"type": "Normal", "object": {"kind":"PodSequence","namespace":"default","name":"test-node-scoped-sequence","uid":"2e436e1b-2533-457a-96ca-b3b0c330f5d7","apiVersion":"scheduling.example.com/v1alpha1","resourceVersion":"852439"}, "reason": "Initialized"}
+2026-01-28T21:40:42Z    INFO    Tainted node for group sequencing       {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "PodSequence": {"name":"test-node-scoped-sequence","namespace":"default"}, "namespace": "default", "name": "test-node-scoped-sequence", "reconcileID": "b29aeb65-d67a-46b3-96b6-2ac2eaa10b7d", "node": "aks-testnodes-14560944-vmss000001", "taint": "podsequence.example.com/test-node-scoped-sequence-group-1-blocked"}
+2026-01-28T21:40:42Z    INFO    Tainted node for group sequencing       {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "PodSequence": {"name":"test-node-scoped-sequence","namespace":"default"}, "namespace": "default", "name": "test-node-scoped-sequence", "reconcileID": "b29aeb65-d67a-46b3-96b6-2ac2eaa10b7d", "node": "aks-agentpool-33679307-vmss000000", "taint": "podsequence.example.com/test-node-scoped-sequence-group-1-blocked"}
+2026-01-28T21:40:43Z    INFO    Tainted node for group sequencing       {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "PodSequence": {"name":"test-node-scoped-sequence","namespace":"default"}, "namespace": "default", "name": "test-node-scoped-sequence", "reconcileID": "b29aeb65-d67a-46b3-96b6-2ac2eaa10b7d", "node": "aks-agentpool-33679307-vmss000001", "taint": "podsequence.example.com/test-node-scoped-sequence-group-1-blocked"}
+2026-01-28T21:40:43Z    INFO    Tainted node for group sequencing       {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "PodSequence": {"name":"test-node-scoped-sequence","namespace":"default"}, "namespace": "default", "name": "test-node-scoped-sequence", "reconcileID": "b29aeb65-d67a-46b3-96b6-2ac2eaa10b7d", "node": "aks-testnodes-14560944-vmss000000", "taint": "podsequence.example.com/test-node-scoped-sequence-group-1-blocked"}
+2026-01-28T21:40:43Z    ERROR   Failed to taint node    {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "PodSequence": {"name":"test-node-scoped-sequence","namespace":"default"}, "namespace": "default", "name": "test-node-scoped-sequence", "reconcileID": "b29aeb65-d67a-46b3-96b6-2ac2eaa10b7d", "node": "aks-testnodes-14560944-vmss000001", "taint": "podsequence.example.com/test-node-scoped-sequence-group-2-blocked", "error": "Operation cannot be fulfilled on nodes \"aks-testnodes-14560944-vmss000001\": the object has been modified; please apply your changes to the latest version and try again"}
+github.com/alvinli222/podsequencing/internal/controller.(*PodSequenceReconciler).reconcileNodeScoped
+        /workspace/internal/controller/podsequence_controller.go:264
+github.com/alvinli222/podsequencing/internal/controller.(*PodSequenceReconciler).Reconcile
+        /workspace/internal/controller/podsequence_controller.go:95
+sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller).Reconcile
+        /go/pkg/mod/sigs.k8s.io/controller-runtime@v0.16.3/pkg/internal/controller/controller.go:119
+sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller).reconcileHandler
+        /go/pkg/mod/sigs.k8s.io/controller-runtime@v0.16.3/pkg/internal/controller/controller.go:316
+sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller).processNextWorkItem
+        /go/pkg/mod/sigs.k8s.io/controller-runtime@v0.16.3/pkg/internal/controller/controller.go:266
+sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller).Start.func2.2
+        /go/pkg/mod/sigs.k8s.io/controller-runtime@v0.16.3/pkg/internal/controller/controller.go:227
+2026-01-28T21:40:43Z    ERROR   Reconciler error        {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "PodSequence": {"name":"test-node-scoped-sequence","namespace":"default"}, "namespace": "default", "name": "test-node-scoped-sequence", "reconcileID": "b29aeb65-d67a-46b3-96b6-2ac2eaa10b7d", "error": "Operation cannot be fulfilled on nodes \"aks-testnodes-14560944-vmss000001\": the object has been modified; please apply your changes to the latest version and try again"}
+sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller).reconcileHandler
+        /go/pkg/mod/sigs.k8s.io/controller-runtime@v0.16.3/pkg/internal/controller/controller.go:329
+sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller).processNextWorkItem
+        /go/pkg/mod/sigs.k8s.io/controller-runtime@v0.16.3/pkg/internal/controller/controller.go:266
+sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller).Start.func2.2
+        /go/pkg/mod/sigs.k8s.io/controller-runtime@v0.16.3/pkg/internal/controller/controller.go:227
+2026-01-28T21:40:43Z    INFO    Tainted node for group sequencing       {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "PodSequence": {"name":"test-node-scoped-sequence","namespace":"default"}, "namespace": "default", "name": "test-node-scoped-sequence", "reconcileID": "9c1765e4-e8a1-476c-83b2-516f6d9c87c5", "node": "aks-testnodes-14560944-vmss000000", "taint": "podsequence.example.com/test-node-scoped-sequence-group-2-blocked"}
+2026-01-28T21:40:43Z    INFO    Tainted node for group sequencing       {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "PodSequence": {"name":"test-node-scoped-sequence","namespace":"default"}, "namespace": "default", "name": "test-node-scoped-sequence", "reconcileID": "9c1765e4-e8a1-476c-83b2-516f6d9c87c5", "node": "aks-testnodes-14560944-vmss000001", "taint": "podsequence.example.com/test-node-scoped-sequence-group-2-blocked"}
+2026-01-28T21:40:43Z    INFO    Tainted node for group sequencing       {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "PodSequence": {"name":"test-node-scoped-sequence","namespace":"default"}, "namespace": "default", "name": "test-node-scoped-sequence", "reconcileID": "9c1765e4-e8a1-476c-83b2-516f6d9c87c5", "node": "aks-agentpool-33679307-vmss000000", "taint": "podsequence.example.com/test-node-scoped-sequence-group-2-blocked"}
+2026-01-28T21:40:43Z    INFO    Tainted node for group sequencing       {"controller": "podsequence", "controllerGroup": "scheduling.example.com", "controllerKind": "PodSequence", "PodSequence": {"name":"test-node-scoped-sequence","namespace":"default"}, "namespace": "default", "name": "test-node-scoped-sequence", "reconcileID": "9c1765e4-e8a1-476c-83b2-516f6d9c87c5", "node": "aks-agentpool-33679307-vmss000001", "taint": "podsequence.example.com/test-node-scoped-sequence-group-2-blocked"}

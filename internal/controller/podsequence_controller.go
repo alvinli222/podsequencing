@@ -763,18 +763,56 @@ func findStringIndex(s, substr string) int {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *PodSequenceReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// Run orphaned taint cleanup on controller startup
-	go func() {
-		ctx := context.Background()
-		if err := r.cleanupOrphanedTaints(ctx); err != nil {
-			log.FromContext(ctx).Error(err, "Failed to cleanup orphaned taints on startup")
-		}
-	}()
+	// Run orphaned taint cleanup periodically
+	if err := mgr.Add(&orphanedTaintCleaner{reconciler: r, mgr: mgr}); err != nil {
+		return err
+	}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&schedulingv1alpha1.PodSequence{}).
 		Owns(&corev1.Pod{}).
 		Complete(r)
+}
+
+// orphanedTaintCleaner implements manager.Runnable to clean up orphaned taints periodically
+type orphanedTaintCleaner struct {
+	reconciler *PodSequenceReconciler
+	mgr        ctrl.Manager
+}
+
+func (o *orphanedTaintCleaner) Start(ctx context.Context) error {
+	log := log.FromContext(ctx)
+	log.Info("Starting orphaned taint cleanup routine")
+	
+	// Wait for cache to sync
+	cache := o.mgr.GetCache()
+	if !cache.WaitForCacheSync(ctx) {
+		return fmt.Errorf("failed to wait for cache sync")
+	}
+	
+	log.Info("Cache synced, starting orphaned taint cleanup")
+	
+	// Run immediately on startup
+	if err := o.reconciler.cleanupOrphanedTaints(ctx); err != nil {
+		log.Error(err, "Failed initial orphaned taint cleanup")
+	}
+	
+	// Then run periodically every 5 minutes
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("Stopping orphaned taint cleanup routine")
+			return nil
+		case <-ticker.C:
+			log.Info("Running periodic orphaned taint cleanup")
+			if err := o.reconciler.cleanupOrphanedTaints(ctx); err != nil {
+				log.Error(err, "Failed periodic orphaned taint cleanup")
+			}
+		}
+	}
 }
 
 // ensureTaintsInitialized ensures all necessary taints are applied to all nodes
