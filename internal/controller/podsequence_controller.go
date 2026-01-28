@@ -440,13 +440,6 @@ func (r *PodSequenceReconciler) reconcileNodeScoped(ctx context.Context, podSeq 
 	}
 	return ctrl.Result{RequeueAfter: RequeueDelay}, nil
 }
-}
-
-// removeSchedulingGate removes the scheduling gate from a pod
-		return ctrl.Result{RequeueAfter: RequeueDelay}, nil
-	}
-	return ctrl.Result{}, nil
-}
 
 // removeSchedulingGate removes the specified scheduling gate from a pod
 func (r *PodSequenceReconciler) removeSchedulingGate(ctx context.Context, pod *corev1.Pod, gateName string) error {

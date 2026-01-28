@@ -1,8 +1,8 @@
-all modules verified
 # github.com/alvinli222/podsequencing/internal/controller
-internal/controller/podsequence_controller.go:364:50: syntax error: unexpected %, expected }
-internal/controller/podsequence_controller.go:364:84: newline in string
-internal/controller/podsequence_controller.go:401:2: syntax error: non-declaration statement outside function body
+internal/controller/podsequence_controller.go:443:1: syntax error: non-declaration statement outside function body
 The command '/bin/sh -c rm -f go.sum && go mod tidy && go mod verify && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager cmd/main.go' returned a non-zero code: 1
-2026/01/28 21:25:28 Container failed during run: build. No retries remaining.
+2026/01/28 21:28:56 Container failed during run: build. No retries remaining.
 failed to run step ID: build: exit status 1
+
+Run ID: chs failed after 1m56s. Error: failed during run, err: exit status 1
+Run failed
