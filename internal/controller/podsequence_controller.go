@@ -20,6 +20,7 @@ import (
 
 const (
 	DefaultSchedulingGate = "podsequence.example.com/sequence-gate"
+	FinalizerKey          = "podsequence.example.com/finalizer"
 	RequeueDelay          = 5 * time.Second
 )
 
@@ -85,8 +86,26 @@ func (r *PodSequenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	// Check if sequence is already completed
+	// Check for deletion (marked for deletion)
+	if !podSeq.DeletionTimestamp.IsZero() {
+		return r.handleDeletion(ctx, podSeq, scope)
+	}
+
+	// Add finalizer if not already present
+	if !contains(podSeq.Finalizers, FinalizerKey) {
+		podSeq.Finalizers = append(podSeq.Finalizers, FinalizerKey)
+		if err := r.Update(ctx, podSeq); err != nil {
+			log.Error(err, "Failed to add finalizer")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// Check if sequence is already completed - clean up taints if so
 	if podSeq.Status.Phase == schedulingv1alpha1.PodSequencePhaseCompleted {
+		if err := r.cleanupTaints(ctx, podSeq); err != nil {
+			log.Error(err, "Failed to cleanup taints on completion")
+		}
 		return ctrl.Result{}, nil
 	}
 
@@ -232,49 +251,41 @@ func (r *PodSequenceReconciler) reconcileNodeScoped(ctx context.Context, podSeq 
 	log := log.FromContext(ctx)
 
 	// Step 1: Initialize - taint all nodes for all groups except the first
-	if len(podSeq.Status.NodeStatus) == 0 && len(podSeq.Spec.PodGroups) > 1 {
-		// Get all nodes
+	// Continue to ensure all taints are applied, even if controller restarted mid-initialization
+	if len(podSeq.Spec.PodGroups) > 1 {
+		if !r.ensureTaintsInitialized(ctx, podSeq) {
+			// Taints not fully initialized yet, requeue
+			podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
+			podSeq.Status.Message = "Initializing node taints for sequencing"
+			if err := r.Status().Update(ctx, podSeq); err != nil {
+				log.Error(err, "Failed to update status")
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: RequeueDelay}, nil
+		}
+	}
+
+	// Initialize node status if empty (only after taint initialization is complete)
+	if len(podSeq.Status.NodeStatus) == 0 {
 		nodeList := &corev1.NodeList{}
 		if err := r.List(ctx, nodeList); err != nil {
 			log.Error(err, "Failed to list nodes")
 			return ctrl.Result{}, err
 		}
 
-		// Taint all nodes with group-level taints (skip group 0)
-		// Use PodSequence name in taint key to avoid conflicts with other sequences
-		for i := 1; i < len(podSeq.Spec.PodGroups); i++ {
-			taintKey := fmt.Sprintf("podsequence.example.com/%s-group-%d-blocked", podSeq.Name, i)
-			for _, node := range nodeList.Items {
-				nodeCopy := node.DeepCopy()
-				// Check if taint already exists
-				taintExists := false
-				for _, taint := range nodeCopy.Spec.Taints {
-					if taint.Key == taintKey {
-						taintExists = true
-						break
-					}
-				}
-				
-				if !taintExists {
-					nodeCopy.Spec.Taints = append(nodeCopy.Spec.Taints, corev1.Taint{
-						Key:    taintKey,
-						Effect: corev1.TaintEffectNoSchedule,
-					})
-					if err := r.Update(ctx, nodeCopy); err != nil {
-						log.Error(err, "Failed to taint node", "node", node.Name, "taint", taintKey)
-						return ctrl.Result{}, err
-					}
-					log.Info("Tainted node for group sequencing", "node", node.Name, "taint", taintKey)
-				}
-			}
+		for _, node := range nodeList.Items {
+			podSeq.Status.NodeStatus = append(podSeq.Status.NodeStatus, schedulingv1alpha1.NodeSequenceStatus{
+				NodeName:                  node.Name,
+				CurrentIndex:              0,
+				ReadyPodsInCurrentGroup:   0,
+				Phase:                     schedulingv1alpha1.PodSequencePhaseInProgress,
+				TaintInitializedForGroups: []int{},
+			})
 		}
-
-		// Initialize node status to mark tainting is complete
-		podSeq.Status.NodeStatus = []schedulingv1alpha1.NodeSequenceStatus{}
 		podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
-		podSeq.Status.Message = "Initialized node taints for sequencing"
+		podSeq.Status.Message = "Initialized node status for sequencing"
 		if err := r.Status().Update(ctx, podSeq); err != nil {
-			log.Error(err, "Failed to initialize status")
+			log.Error(err, "Failed to initialize node status")
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: RequeueDelay}, nil
@@ -529,10 +540,293 @@ func (r *PodSequenceReconciler) getPodsInGroup(ctx context.Context, group schedu
 	return pods, fmt.Errorf("group must specify either pods or podSelector")
 }
 
+// contains checks if a string is in a slice
+func contains(slice []string, item string) bool {
+	for _, v := range slice {
+		if v == item {
+			return true
+		}
+	}
+	return false
+}
+
+// removeString removes an item from a string slice
+func removeString(slice []string, item string) []string {
+	var result []string
+	for _, v := range slice {
+		if v != item {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
+// startsWith checks if a string starts with a prefix
+func startsWith(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
+// handleDeletion handles cleanup when PodSequence is deleted
+func (r *PodSequenceReconciler) handleDeletion(ctx context.Context, podSeq *schedulingv1alpha1.PodSequence, scope string) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	// Clean up taints if this is a node-scoped sequence
+	if scope == schedulingv1alpha1.PodSequenceScopeNode {
+		if err := r.cleanupTaints(ctx, podSeq); err != nil {
+			log.Error(err, "Failed to cleanup taints during deletion")
+			// Continue anyway to remove finalizer
+		}
+	}
+
+	// Remove finalizer so the object can be deleted
+	podSeq.Finalizers = removeString(podSeq.Finalizers, FinalizerKey)
+	if err := r.Update(ctx, podSeq); err != nil {
+		log.Error(err, "Failed to remove finalizer")
+		return ctrl.Result{}, err
+	}
+
+	r.Recorder.Event(podSeq, corev1.EventTypeNormal, "Deleted", "Pod sequence cleaned up successfully")
+	return ctrl.Result{}, nil
+}
+
+// cleanupTaints removes all taints created by this PodSequence from all nodes
+func (r *PodSequenceReconciler) cleanupTaints(ctx context.Context, podSeq *schedulingv1alpha1.PodSequence) error {
+	log := log.FromContext(ctx)
+
+	// Get all nodes
+	nodeList := &corev1.NodeList{}
+	if err := r.List(ctx, nodeList); err != nil {
+		return fmt.Errorf("failed to list nodes: %w", err)
+	}
+
+	// For each node, remove taints created by this PodSequence
+	for _, nodeItem := range nodeList.Items {
+		node := &corev1.Node{}
+		if err := r.Get(ctx, types.NamespacedName{Name: nodeItem.Name}, node); err != nil {
+			log.Error(err, "Failed to get node", "name", nodeItem.Name)
+			continue
+		}
+
+		modified := false
+		var newTaints []corev1.Taint
+
+		// Filter out taints belonging to this PodSequence
+		for _, taint := range node.Spec.Taints {
+			// Check if this taint belongs to our PodSequence
+			expectedKeyPrefix := fmt.Sprintf("podsequence.example.com/%s-group-", podSeq.Name)
+			if !startsWith(taint.Key, expectedKeyPrefix) {
+				newTaints = append(newTaints, taint)
+			} else {
+				modified = true
+				log.Info("Removing taint from node", "node", node.Name, "taint", taint.Key)
+			}
+		}
+
+		// Update node if taints were removed
+		if modified {
+			node.Spec.Taints = newTaints
+			if err := r.Update(ctx, node); err != nil {
+				log.Error(err, "Failed to update node taints", "name", node.Name)
+				continue
+			}
+		}
+	}
+
+	return nil
+}
+
+// cleanupOrphanedTaints removes taints from PodSequences that no longer exist
+// This is called on controller startup to clean up any orphaned taints
+func (r *PodSequenceReconciler) cleanupOrphanedTaints(ctx context.Context) error {
+	log := log.FromContext(ctx)
+	log.Info("Scanning for orphaned taints from deleted PodSequences")
+
+	// Get all nodes
+	nodeList := &corev1.NodeList{}
+	if err := r.List(ctx, nodeList); err != nil {
+		return fmt.Errorf("failed to list nodes: %w", err)
+	}
+
+	// Track which PodSequences are referenced in taints
+	podSequenceNamesInTaints := make(map[string]bool)
+
+	// Scan all nodes for podsequence taints
+	for _, nodeItem := range nodeList.Items {
+		node := &corev1.Node{}
+		if err := r.Get(ctx, types.NamespacedName{Name: nodeItem.Name}, node); err != nil {
+			log.Error(err, "Failed to get node", "name", nodeItem.Name)
+			continue
+		}
+
+		for _, taint := range node.Spec.Taints {
+			// Check if this is a podsequence taint: podsequence.example.com/{name}-group-{N}-blocked
+			if startsWith(taint.Key, "podsequence.example.com/") {
+				// Extract the PodSequence name
+				// Format: podsequence.example.com/{name}-group-{N}-blocked
+				prefix := "podsequence.example.com/"
+				suffix := "-group-"
+				nameWithSuffix := taint.Key[len(prefix):]
+				if idx := findStringIndex(nameWithSuffix, suffix); idx != -1 {
+					podSeqName := nameWithSuffix[:idx]
+					podSequenceNamesInTaints[podSeqName] = true
+				}
+			}
+		}
+	}
+
+	// Check each PodSequence name found in taints - if it doesn't exist, clean up its taints
+	for podSeqName := range podSequenceNamesInTaints {
+		// Try to get the PodSequence - check all namespaces
+		podSeqList := &schedulingv1alpha1.PodSequenceList{}
+		if err := r.List(ctx, podSeqList); err != nil {
+			log.Error(err, "Failed to list PodSequences")
+			continue
+		}
+
+		// Check if this PodSequence exists in the list
+		found := false
+		for _, ps := range podSeqList.Items {
+			if ps.Name == podSeqName {
+				found = true
+				break
+			}
+		}
+
+		// If PodSequence doesn't exist, clean up its taints
+		if !found {
+			log.Info("Found orphaned taints for deleted PodSequence, cleaning up", "podSequenceName", podSeqName)
+			tempPodSeq := &schedulingv1alpha1.PodSequence{}
+			tempPodSeq.Name = podSeqName
+			if err := r.cleanupTaintsForName(ctx, podSeqName); err != nil {
+				log.Error(err, "Failed to cleanup orphaned taints", "podSequenceName", podSeqName)
+			}
+		}
+	}
+
+	return nil
+}
+
+// cleanupTaintsForName removes taints for a specific PodSequence name (used for orphaned taints)
+func (r *PodSequenceReconciler) cleanupTaintsForName(ctx context.Context, podSeqName string) error {
+	log := log.FromContext(ctx)
+
+	// Get all nodes
+	nodeList := &corev1.NodeList{}
+	if err := r.List(ctx, nodeList); err != nil {
+		return fmt.Errorf("failed to list nodes: %w", err)
+	}
+
+	// For each node, remove taints created by this PodSequence name
+	for _, nodeItem := range nodeList.Items {
+		node := &corev1.Node{}
+		if err := r.Get(ctx, types.NamespacedName{Name: nodeItem.Name}, node); err != nil {
+			log.Error(err, "Failed to get node", "name", nodeItem.Name)
+			continue
+		}
+
+		modified := false
+		var newTaints []corev1.Taint
+
+		// Filter out taints belonging to this PodSequence name
+		for _, taint := range node.Spec.Taints {
+			expectedKeyPrefix := fmt.Sprintf("podsequence.example.com/%s-group-", podSeqName)
+			if !startsWith(taint.Key, expectedKeyPrefix) {
+				newTaints = append(newTaints, taint)
+			} else {
+				modified = true
+				log.Info("Removing orphaned taint from node", "node", node.Name, "taint", taint.Key)
+			}
+		}
+
+		// Update node if taints were removed
+		if modified {
+			node.Spec.Taints = newTaints
+			if err := r.Update(ctx, node); err != nil {
+				log.Error(err, "Failed to update node taints", "name", node.Name)
+				continue
+			}
+		}
+	}
+
+	return nil
+}
+
+// findStringIndex finds the index of a substring, returns -1 if not found
+func findStringIndex(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *PodSequenceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Run orphaned taint cleanup on controller startup
+	go func() {
+		ctx := context.Background()
+		if err := r.cleanupOrphanedTaints(ctx); err != nil {
+			log.FromContext(ctx).Error(err, "Failed to cleanup orphaned taints on startup")
+		}
+	}()
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&schedulingv1alpha1.PodSequence{}).
 		Owns(&corev1.Pod{}).
 		Complete(r)
+}
+
+// ensureTaintsInitialized ensures all necessary taints are applied to all nodes
+// Returns true if all taints are successfully initialized, false if still in progress
+func (r *PodSequenceReconciler) ensureTaintsInitialized(ctx context.Context, podSeq *schedulingv1alpha1.PodSequence) bool {
+	log := log.FromContext(ctx)
+
+	nodeList := &corev1.NodeList{}
+	if err := r.List(ctx, nodeList); err != nil {
+		log.Error(err, "Failed to list nodes during taint initialization")
+		return false
+	}
+
+	allTaintsInitialized := true
+
+	// For each group (except group 0, which has no taints)
+	for i := 1; i < len(podSeq.Spec.PodGroups); i++ {
+		taintKey := fmt.Sprintf("podsequence.example.com/%s-group-%d-blocked", podSeq.Name, i)
+
+		// For each node, ensure this group's taint is applied
+		for _, nodeItem := range nodeList.Items {
+			node := &corev1.Node{}
+			if err := r.Get(ctx, types.NamespacedName{Name: nodeItem.Name}, node); err != nil {
+				log.Error(err, "Failed to get node", "node", nodeItem.Name)
+				allTaintsInitialized = false
+				continue
+			}
+
+			// Check if taint already exists
+			taintExists := false
+			for _, taint := range node.Spec.Taints {
+				if taint.Key == taintKey {
+					taintExists = true
+					break
+				}
+			}
+
+			if !taintExists {
+				// Apply the taint
+				node.Spec.Taints = append(node.Spec.Taints, corev1.Taint{
+					Key:    taintKey,
+					Effect: corev1.TaintEffectNoSchedule,
+				})
+				if err := r.Update(ctx, node); err != nil {
+					log.Error(err, "Failed to taint node", "node", node.Name, "taint", taintKey)
+					allTaintsInitialized = false
+					continue
+				}
+				log.Info("Applied taint to node", "node", node.Name, "taint", taintKey)
+			}
+		}
+	}
+
+	return allTaintsInitialized
 }

@@ -82,6 +82,12 @@ type NodeSequenceStatus struct {
 
 	// Phase indicates the current phase for this node
 	Phase PodSequencePhase `json:"phase"`
+
+	// TaintInitializedForGroups tracks which groups' taints have been applied to this node
+	// This is a list of group indices that have had their taints initialized on this node
+	// Used for recovery: if controller restarts, it knows which taints need to be reapplied
+	// +optional
+	TaintInitializedForGroups []int `json:"taintInitializedForGroups,omitempty"`
 }
 
 // PodSequenceStatus defines the observed state of PodSequence
