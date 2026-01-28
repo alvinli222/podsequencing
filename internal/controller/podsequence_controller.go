@@ -189,6 +189,18 @@ func (r *PodSequenceReconciler) reconcileClusterScoped(ctx context.Context, podS
 	podSeq.Status.CurrentGroupPods = currentPodNames
 	podSeq.Status.ReadyPodsInCurrentGroup = readyCount
 
+	// If no pods were found, wait for them to be created
+	if len(currentPods) == 0 {
+		log.Info("No pods found in current group, waiting for pods to be created", "groupName", groupName)
+		podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
+		podSeq.Status.Message = fmt.Sprintf("Waiting for pods in %s to be created", groupName)
+		if err := r.Status().Update(ctx, podSeq); err != nil {
+			log.Error(err, "Failed to update status")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: RequeueDelay}, nil
+	}
+
 	// Check if all pods in current group are ready
 	if readyCount == len(currentPods) {
 		// All pods in group are ready, move to next group

@@ -1,0 +1,216 @@
+# Test example: Multiple pods per group with different startup times
+# Group 1: pod1 (2min) + pod2 (4min) → Both start together
+# Group 2: pod3 (2min) + pod4 (4min) → Start after Group 1 is fully ready (waits 4min for pod2)
+# Group 3: pod5 (2min) + pod6 (4min) → Start after Group 2 is fully ready (waits 4min for pod4)
+apiVersion: scheduling.example.com/v1alpha1
+kind: PodSequence
+metadata:
+  name: test-multi-pod-groups
+  namespace: default
+spec:
+  scope: Cluster
+  podGroups:
+    - name: "Group 1"
+      pods:
+        - test-pod-1
+        - test-pod-2
+    - name: "Group 2"
+      pods:
+        - test-pod-3
+        - test-pod-4
+    - name: "Group 3"
+      pods:
+        - test-pod-5
+        - test-pod-6
+---
+# Group 1: Pod 1 - 2 minute startup
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-1
+  namespace: default
+  labels:
+    app: test-multi-group
+    group: "1"
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: app
+    image: busybox:latest
+    command:
+    - sh
+    - -c
+    - |
+      echo "Pod 1 (Group 1) starting - ready in 2 minutes"
+      sleep 120
+      echo "Pod 1 is now ready"
+      while true; do sleep 30; done
+    readinessProbe:
+      exec:
+        command:
+        - sh
+        - -c
+        - test -f /tmp/ready || ([ $(( $(date +%s) - $(stat -c %Y /proc/1) )) -ge 120 ] && touch /tmp/ready && exit 0 || exit 1)
+      initialDelaySeconds: 10
+      periodSeconds: 10
+---
+# Group 1: Pod 2 - 4 minute startup
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-2
+  namespace: default
+  labels:
+    app: test-multi-group
+    group: "1"
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: app
+    image: busybox:latest
+    command:
+    - sh
+    - -c
+    - |
+      echo "Pod 2 (Group 1) starting - ready in 4 minutes"
+      sleep 240
+      echo "Pod 2 is now ready"
+      while true; do sleep 30; done
+    readinessProbe:
+      exec:
+        command:
+        - sh
+        - -c
+        - test -f /tmp/ready || ([ $(( $(date +%s) - $(stat -c %Y /proc/1) )) -ge 240 ] && touch /tmp/ready && exit 0 || exit 1)
+      initialDelaySeconds: 10
+      periodSeconds: 10
+---
+# Group 2: Pod 3 - 2 minute startup
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-3
+  namespace: default
+  labels:
+    app: test-multi-group
+    group: "2"
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: app
+    image: busybox:latest
+    command:
+    - sh
+    - -c
+    - |
+      echo "Pod 3 (Group 2) starting - ready in 2 minutes"
+      sleep 120
+      echo "Pod 3 is now ready"
+      while true; do sleep 30; done
+    readinessProbe:
+      exec:
+        command:
+        - sh
+        - -c
+        - test -f /tmp/ready || ([ $(( $(date +%s) - $(stat -c %Y /proc/1) )) -ge 120 ] && touch /tmp/ready && exit 0 || exit 1)
+      initialDelaySeconds: 10
+      periodSeconds: 10
+---
+# Group 2: Pod 4 - 4 minute startup
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-4
+  namespace: default
+  labels:
+    app: test-multi-group
+    group: "2"
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: app
+    image: busybox:latest
+    command:
+    - sh
+    - -c
+    - |
+      echo "Pod 4 (Group 2) starting - ready in 4 minutes"
+      sleep 240
+      echo "Pod 4 is now ready"
+      while true; do sleep 30; done
+    readinessProbe:
+      exec:
+        command:
+        - sh
+        - -c
+        - test -f /tmp/ready || ([ $(( $(date +%s) - $(stat -c %Y /proc/1) )) -ge 240 ] && touch /tmp/ready && exit 0 || exit 1)
+      initialDelaySeconds: 10
+      periodSeconds: 10
+---
+# Group 3: Pod 5 - 2 minute startup
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-5
+  namespace: default
+  labels:
+    app: test-multi-group
+    group: "3"
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: app
+    image: busybox:latest
+    command:
+    - sh
+    - -c
+    - |
+      echo "Pod 5 (Group 3) starting - ready in 2 minutes"
+      sleep 120
+      echo "Pod 5 is now ready"
+      while true; do sleep 30; done
+    readinessProbe:
+      exec:
+        command:
+        - sh
+        - -c
+        - test -f /tmp/ready || ([ $(( $(date +%s) - $(stat -c %Y /proc/1) )) -ge 120 ] && touch /tmp/ready && exit 0 || exit 1)
+      initialDelaySeconds: 10
+      periodSeconds: 10
+---
+# Group 3: Pod 6 - 4 minute startup
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod-6
+  namespace: default
+  labels:
+    app: test-multi-group
+    group: "3"
+spec:
+  schedulingGates:
+  - name: podsequence.example.com/sequence-gate
+  containers:
+  - name: app
+    image: busybox:latest
+    command:
+    - sh
+    - -c
+    - |
+      echo "Pod 6 (Group 3) starting - ready in 4 minutes"
+      sleep 240
+      echo "Pod 6 is now ready"
+      while true; do sleep 30; done
+    readinessProbe:
+      exec:
+        command:
+        - sh
+        - -c
+        - test -f /tmp/ready || ([ $(( $(date +%s) - $(stat -c %Y /proc/1) )) -ge 240 ] && touch /tmp/ready && exit 0 || exit 1)
+      initialDelaySeconds: 10
+      periodSeconds: 10
