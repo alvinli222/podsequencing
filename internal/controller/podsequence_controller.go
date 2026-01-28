@@ -261,6 +261,14 @@ func (r *PodSequenceReconciler) reconcileNodeScoped(ctx context.Context, podSeq 
 			}
 		}
 		log.Info("Removed scheduling gates from first group pods", "count", len(firstGroupPods))
+		
+		// Initialize NodeStatus to mark that we've processed the first group
+		// This allows the next reconciliation to proceed to node-based processing
+		podSeq.Status.NodeStatus = []schedulingv1alpha1.NodeSequenceStatus{}
+		if err := r.Status().Update(ctx, podSeq); err != nil {
+			log.Error(err, "Failed to initialize node status")
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{RequeueAfter: RequeueDelay}, nil
 	}
 
