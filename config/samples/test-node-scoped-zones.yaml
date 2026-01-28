@@ -45,7 +45,21 @@ spec:
     spec:
       schedulingGates:
       - name: podsequence.example.com/sequence-gate
+      tolerations:
+      # Group 0 tolerates all group taints - can schedule anywhere
+      - key: podsequence.example.com/test-node-scoped-sequence-group-1-blocked
+        operator: Exists
+      - key: podsequence.example.com/test-node-scoped-sequence-group-2-blocked
+        operator: Exists
       affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.azure.com/mode
+                operator: NotIn
+                values:
+                - system
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
           - labelSelector:
@@ -93,7 +107,19 @@ spec:
     spec:
       schedulingGates:
       - name: podsequence.example.com/sequence-gate
+      tolerations:
+      # Group 1 tolerates only group-2-blocked - can only schedule where group-0 is ready
+      - key: podsequence.example.com/test-node-scoped-sequence-group-2-blocked
+        operator: Exists
       affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.azure.com/mode
+                operator: NotIn
+                values:
+                - system
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
           - labelSelector:
@@ -141,7 +167,17 @@ spec:
     spec:
       schedulingGates:
       - name: podsequence.example.com/sequence-gate
+      tolerations: []
+      # Group 2 has no tolerations - can only schedule where all previous groups are ready
       affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.azure.com/mode
+                operator: NotIn
+                values:
+                - system
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
           - labelSelector:
