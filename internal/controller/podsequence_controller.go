@@ -231,6 +231,28 @@ func (r *PodSequenceReconciler) reconcileClusterScoped(ctx context.Context, podS
 func (r *PodSequenceReconciler) reconcileNodeScoped(ctx context.Context, podSeq *schedulingv1alpha1.PodSequence, targetNamespace, schedulingGateName string) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
+	// For the first group (index 0), remove gates from all pods regardless of node assignment
+	// This allows them to be scheduled to nodes first
+	if len(podSeq.Status.NodeStatus) == 0 && len(podSeq.Spec.PodGroups) > 0 {
+		currentGroup := podSeq.Spec.PodGroups[0]
+		firstGroupPods, err := r.getPodsInGroup(ctx, currentGroup, targetNamespace)
+		if err != nil {
+			log.Error(err, "Failed to get pods in first group")
+			return ctrl.Result{}, err
+		}
+
+		if len(firstGroupPods) > 0 {
+			for _, pod := range firstGroupPods {
+				if err := r.removeSchedulingGate(ctx, pod, schedulingGateName); err != nil {
+					log.Error(err, "Failed to remove scheduling gate from first group pod", "podName", pod.Name)
+					return ctrl.Result{}, err
+				}
+			}
+			log.Info("Removed scheduling gates from first group pods", "count", len(firstGroupPods))
+			return ctrl.Result{RequeueAfter: RequeueDelay}, nil
+		}
+	}
+
 	// Get all pods across all groups to determine which nodes are involved
 	allNodeNames := make(map[string]bool)
 	totalPodsFound := 0
@@ -270,26 +292,6 @@ func (r *PodSequenceReconciler) reconcileNodeScoped(ctx context.Context, podSeq 
 			ReadyPodsInCurrentGroup: ns.ReadyPodsInCurrentGroup,
 			Phase:                   ns.Phase,
 		}
-	}
-
-	// For the first group (index 0), remove gates from all pods regardless of node assignment
-	// This allows them to be scheduled to nodes
-	if len(podSeq.Status.NodeStatus) == 0 {
-		currentGroup := podSeq.Spec.PodGroups[0]
-		firstGroupPods, err := r.getPodsInGroup(ctx, currentGroup, targetNamespace)
-		if err != nil {
-			log.Error(err, "Failed to get pods in first group")
-			return ctrl.Result{}, err
-		}
-
-		for _, pod := range firstGroupPods {
-			if err := r.removeSchedulingGate(ctx, pod, schedulingGateName); err != nil {
-				log.Error(err, "Failed to remove scheduling gate from first group pod", "podName", pod.Name)
-				return ctrl.Result{}, err
-			}
-		}
-		log.Info("Removed scheduling gates from first group pods", "count", len(firstGroupPods))
-		return ctrl.Result{RequeueAfter: RequeueDelay}, nil
 	}
 
 	// Process each node independently
