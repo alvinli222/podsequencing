@@ -241,16 +241,27 @@ func (r *PodSequenceReconciler) reconcileNodeScoped(ctx context.Context, podSeq 
 			return ctrl.Result{}, err
 		}
 
-		if len(firstGroupPods) > 0 {
-			for _, pod := range firstGroupPods {
-				if err := r.removeSchedulingGate(ctx, pod, schedulingGateName); err != nil {
-					log.Error(err, "Failed to remove scheduling gate from first group pod", "podName", pod.Name)
-					return ctrl.Result{}, err
-				}
+		if len(firstGroupPods) == 0 {
+			// No pods found yet, wait for them to be created
+			log.Info("No pods found in first group, waiting for pods to be created")
+			podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
+			podSeq.Status.Message = "Waiting for pods to be created"
+			if err := r.Status().Update(ctx, podSeq); err != nil {
+				log.Error(err, "Failed to update status")
+				return ctrl.Result{}, err
 			}
-			log.Info("Removed scheduling gates from first group pods", "count", len(firstGroupPods))
 			return ctrl.Result{RequeueAfter: RequeueDelay}, nil
 		}
+
+		// Pods found, remove gates
+		for _, pod := range firstGroupPods {
+			if err := r.removeSchedulingGate(ctx, pod, schedulingGateName); err != nil {
+				log.Error(err, "Failed to remove scheduling gate from first group pod", "podName", pod.Name)
+				return ctrl.Result{}, err
+			}
+		}
+		log.Info("Removed scheduling gates from first group pods", "count", len(firstGroupPods))
+		return ctrl.Result{RequeueAfter: RequeueDelay}, nil
 	}
 
 	// Get all pods across all groups to determine which nodes are involved
