@@ -27,6 +27,14 @@ type PodGroup struct {
 	// the next group's pods on that same node can start
 	// +optional
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// WaitDuration specifies how long to wait after all pods in this group are ready
+	// before allowing the next group to start. Useful for initialization, stabilization, or health check time.
+	// Format: Go duration (e.g., "30s", "5m", "1h30m")
+	// If not specified or "0s", no additional wait is applied
+	// +optional
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$`
+	WaitDuration string `json:"waitDuration,omitempty"`
 }
 
 // PodSequenceScope defines the scope at which pod sequencing is enforced

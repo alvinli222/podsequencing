@@ -235,7 +235,34 @@ func (r *PodSequenceReconciler) reconcileClusterScoped(ctx context.Context, podS
 
 	// Check if all pods in current group are ready
 	if readyCount == len(currentPods) {
-		// All pods in group are ready, move to next group
+		// Check if we need to wait before moving to next group
+		if currentGroup.WaitDuration != "" {
+			waitDuration, err := time.ParseDuration(currentGroup.WaitDuration)
+			if err != nil {
+				log.Error(err, "Invalid wait duration format", "groupName", groupName, "waitDuration", currentGroup.WaitDuration)
+				podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseFailed
+				podSeq.Status.Message = fmt.Sprintf("Invalid wait duration in %s: %v", groupName, err)
+				r.Status().Update(ctx, podSeq)
+				return ctrl.Result{}, err
+			}
+
+			if waitDuration > 0 {
+				// Initialize wait time if not already set
+				if podSeq.Status.Message != fmt.Sprintf("All pods in %s ready, waiting %v before next group", groupName, waitDuration) {
+					log.Info("All pods ready, waiting before next group", "groupName", groupName, "waitDuration", waitDuration)
+					podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
+					podSeq.Status.Message = fmt.Sprintf("All pods in %s ready, waiting %v before next group", groupName, waitDuration)
+					if err := r.Status().Update(ctx, podSeq); err != nil {
+						log.Error(err, "Failed to update status")
+						return ctrl.Result{}, err
+					}
+				}
+				// Requeue after wait duration expires
+				return ctrl.Result{RequeueAfter: waitDuration}, nil
+			}
+		}
+
+		// All pods in group are ready and wait time (if any) has passed, move to next group
 		podSeq.Status.CurrentIndex++
 		podSeq.Status.ProcessedPods = append(podSeq.Status.ProcessedPods, currentPodNames...)
 		podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
@@ -443,6 +470,31 @@ func (r *PodSequenceReconciler) reconcileNodeScoped(ctx context.Context, podSeq 
 	podSeq.Status.CurrentIndex = currentIndex
 
 	if allReady {
+		// Check if we need to wait before advancing
+		currentGroup := podSeq.Spec.PodGroups[currentIndex]
+		if currentGroup.WaitDuration != "" {
+			waitDuration, err := time.ParseDuration(currentGroup.WaitDuration)
+			if err != nil {
+				log.Error(err, "Invalid wait duration format", "groupName", groupName, "waitDuration", currentGroup.WaitDuration)
+				podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseFailed
+				podSeq.Status.Message = fmt.Sprintf("Invalid wait duration in %s: %v", groupName, err)
+				r.Status().Update(ctx, podSeq)
+				return ctrl.Result{}, err
+			}
+
+			if waitDuration > 0 {
+				log.Info("All pods ready, waiting before next group", "groupName", groupName, "waitDuration", waitDuration)
+				podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
+				podSeq.Status.Message = fmt.Sprintf("All pods in %s ready, waiting %v before advancing", groupName, waitDuration)
+				if err := r.Status().Update(ctx, podSeq); err != nil {
+					log.Error(err, "Failed to update status")
+					return ctrl.Result{}, err
+				}
+				// Requeue after wait duration expires
+				return ctrl.Result{RequeueAfter: waitDuration}, nil
+			}
+		}
+
 		log.Info("All pods in group ready, advancing", "groupName", groupName, "ready", readyCount, "total", len(currentPods))
 		podSeq.Status.Phase = schedulingv1alpha1.PodSequencePhaseInProgress
 		podSeq.Status.Message = fmt.Sprintf("All pods in %s are ready, moving to next group", groupName)
