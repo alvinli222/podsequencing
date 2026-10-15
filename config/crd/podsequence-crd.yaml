@@ -1,9 +1,10 @@
+---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: podsequences.scheduling.example.com
   annotations:
-    controller-gen.kubebuilder.io/version: v0.12.0
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: podsequences.scheduling.example.com
 spec:
   group: scheduling.example.com
   names:
@@ -15,37 +16,132 @@ spec:
     singular: podsequence
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.scope
+      name: Scope
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.currentIndex
+      name: CurrentGroup
+      type: integer
+    - jsonPath: .status.summary.satisfiedNodes
+      name: Satisfied
+      priority: 1
+      type: integer
+    - jsonPath: .status.summary.totalNodes
+      name: Nodes
+      priority: 1
+      type: integer
+    - jsonPath: .status.summary.gatedPods
+      name: Gated
+      priority: 1
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: PodSequence is the Schema for the podsequences API
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
           spec:
             description: PodSequenceSpec defines the desired state of PodSequence
             properties:
-              namespace:
-                description: Namespace is the namespace where the pods are located
-                  If not specified, defaults to the namespace of the PodSequence
-                  resource
+              gateTimeout:
+                description: |-
+                  GateTimeout is how long a pinned pod (e.g. a DaemonSet pod) may stay gated waiting for
+                  earlier groups on its node. When exceeded, the node is marked Failed in status and a
+                  Warning event is emitted; the pod stays gated. Node-scoped sequences only.
                 type: string
+              namespace:
+                description: |-
+                  Namespace is the namespace where the pods are located
+                  If not specified, defaults to the namespace of the PodSequence resource
+                type: string
+              nodeEligibility:
+                description: |-
+                  NodeEligibility configures how unpinned pods (e.g. Deployment pods) are kept off nodes
+                  whose earlier groups are not ready. Node-scoped sequences only.
+                properties:
+                  method:
+                    default: NodeLabel
+                    description: Method is either NodeLabel (default) or Taint
+                    enum:
+                    - NodeLabel
+                    - Taint
+                    type: string
+                type: object
+              nodeSelector:
+                description: |-
+                  NodeSelector restricts which nodes participate in a node-scoped sequence.
+                  Defaults to all nodes.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
               podGroups:
-                description: PodGroups is an ordered list of pod groups that should
-                  be scheduled sequentially Each group contains one or more pods.
-                  All pods in a group will have their scheduling gates removed together,
-                  and the next group will only start after all pods in the current
-                  group are ready
+                description: |-
+                  PodGroups is an ordered list of pod groups that should be scheduled sequentially
+                  Each group contains one or more pods. All pods in a group will have their scheduling
+                  gates removed together, and the next group will only start after all pods in the
+                  current group are ready
                 items:
                   description: PodGroup represents a group of pods that should start
                     together
@@ -54,43 +150,35 @@ spec:
                       description: Name is an optional name for the pod group (for
                         identification purposes)
                       type: string
-                    nodeSelector:
-                      additionalProperties:
-                        type: string
-                      description: NodeSelector specifies which nodes this group applies
-                        to (for node-scoped sequences) When Scope is "Node", pods
-                        in this group on each node must be ready before the next group's
-                        pods on that same node can start
-                      type: object
                     podSelector:
-                      description: PodSelector selects pods using label selector (useful
-                        for DaemonSets, StatefulSets, etc.) All pods matching the
-                        selector will be included in this group Either Pods or PodSelector
-                        must be specified, but not both
+                      description: |-
+                        PodSelector selects pods using label selector (useful for DaemonSets, StatefulSets, etc.)
+                        All pods matching the selector will be included in this group
+                        Either Pods or PodSelector must be specified, but not both
                       properties:
                         matchExpressions:
                           description: matchExpressions is a list of label selector
                             requirements. The requirements are ANDed.
                           items:
-                            description: A label selector requirement is a selector
-                              that contains values, a key, and an operator that relates
-                              the key and values.
+                            description: |-
+                              A label selector requirement is a selector that contains values, a key, and an operator that
+                              relates the key and values.
                             properties:
                               key:
                                 description: key is the label key that the selector
                                   applies to.
                                 type: string
                               operator:
-                                description: operator represents a key's relationship
-                                  to a set of values. Valid operators are In, NotIn,
-                                  Exists and DoesNotExist.
+                                description: |-
+                                  operator represents a key's relationship to a set of values.
+                                  Valid operators are In, NotIn, Exists and DoesNotExist.
                                 type: string
                               values:
-                                description: values is an array of string values. If
-                                  the operator is In or NotIn, the values array must
-                                  be non-empty. If the operator is Exists or DoesNotExist,
-                                  the values array must be empty. This array is replaced
-                                  during a strategic merge patch.
+                                description: |-
+                                  values is an array of string values. If the operator is In or NotIn,
+                                  the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                  the values array must be empty. This array is replaced during a strategic
+                                  merge patch.
                                 items:
                                   type: string
                                 type: array
@@ -102,35 +190,57 @@ spec:
                         matchLabels:
                           additionalProperties:
                             type: string
-                          description: matchLabels is a map of {key,value} pairs.
-                            A single {key,value} in the matchLabels map is equivalent
-                            to an element of matchExpressions, whose key field is "key",
-                            the operator is "In", and the values array contains only
-                            "value". The requirements are ANDed.
+                          description: |-
+                            matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                            map is equivalent to an element of matchExpressions, whose key field is "key", the
+                            operator is "In", and the values array contains only "value". The requirements are ANDed.
                           type: object
                       type: object
                       x-kubernetes-map-type: atomic
                     pods:
-                      description: Pods is the list of specific pod names in this
-                        group Use this for explicitly named pods Either Pods or PodSelector
-                        must be specified, but not both
+                      description: |-
+                        Pods is the list of specific pod names in this group
+                        Use this for explicitly named pods
+                        Either Pods or PodSelector must be specified, but not both
                       items:
                         type: string
                       type: array
+                    policy:
+                      default: SkipIfNotScheduled
+                      description: |-
+                        Policy controls how this group is evaluated on nodes without pods of this group
+                        (node-scoped sequences only). Defaults to SkipIfNotScheduled.
+                      enum:
+                      - SkipIfNotScheduled
+                      - RequireOnNode
+                      type: string
+                    waitDuration:
+                      description: |-
+                        WaitDuration specifies how long to wait after all pods in this group are ready
+                        before allowing the next group to start. Useful for initialization, stabilization, or health check time.
+                        For node-scoped sequences this is evaluated per node.
+                        Format: Go duration (e.g., "30s", "5m", "1h30m")
+                        If not specified or "0s", no additional wait is applied
+                      pattern: ^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$
+                      type: string
                   type: object
+                  x-kubernetes-validations:
+                  - message: exactly one of pods or podSelector must be specified
+                    rule: (has(self.pods) && size(self.pods) > 0) != has(self.podSelector)
                 minItems: 1
                 type: array
               schedulingGateName:
-                description: SchedulingGateName is the name of the scheduling gate
-                  to manage Defaults to "podsequence.example.com/sequence-gate"
+                description: |-
+                  SchedulingGateName is the name of the scheduling gate to manage
+                  Defaults to "podsequence.example.com/sequence-gate"
                 type: string
               scope:
                 default: Cluster
-                description: 'Scope determines whether sequencing is enforced at the
-                  cluster or node level - Cluster (default): All pods in a group across
-                  the cluster must be ready before the next group starts - Node: Pods
-                  in a group on each node must be ready before the next group''s pods
-                  on that node start'
+                description: |-
+                  Scope determines whether sequencing is enforced at the cluster or node level
+                  - Cluster (default): All pods in a group across the cluster must be ready before the next group starts
+                  - Node: Pods in a group on each node must be ready before the next group's pods on that node start
+                  Immutable.
                 enum:
                 - Cluster
                 - Node
@@ -138,6 +248,13 @@ spec:
             required:
             - podGroups
             type: object
+            x-kubernetes-validations:
+            - message: node-scoped sequences require podSelector on every group
+              rule: '!has(self.scope) || self.scope != ''Node'' || self.podGroups.all(g,
+                has(g.podSelector))'
+            - message: scope is immutable
+              rule: '(has(self.scope) ? self.scope : ''Cluster'') == (has(oldSelf.scope)
+                ? oldSelf.scope : ''Cluster'')'
           status:
             description: PodSequenceStatus defines the observed state of PodSequence
             properties:
@@ -146,42 +263,42 @@ spec:
                   of the PodSequence's state
                 items:
                   description: "Condition contains details for one aspect of the current
-                    state of this API Resource. --- This struct is intended for direct
-                    use as an array at the field path .status.conditions.  For example,
-                    \n type FooStatus struct{ // Represents the observations of a
-                    foo's current state. // Known .status.conditions.type are: \"Available\",
-                    \"Progressing\", and \"Degraded\" // +patchMergeKey=type // +patchStrategy=merge
-                    // +listType=map // +listMapKey=type Conditions []metav1.Condition
-                    `json:\"conditions,omitempty\" patchStrategy:\"merge\" patchMergeKey:\"type\"
-                    protobuf:\"bytes,1,rep,name=conditions\"` \n // other fields }"
+                    state of this API Resource.\n---\nThis struct is intended for
+                    direct use as an array at the field path .status.conditions.  For
+                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
+                    observations of a foo's current state.\n\t    // Known .status.conditions.type
+                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
+                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
+                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
+                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
+                    \   // other fields\n\t}"
                   properties:
                     lastTransitionTime:
-                      description: lastTransitionTime is the last time the condition
-                        transitioned from one status to another. This should be when
-                        the underlying condition changed.  If that is not known, then
-                        using the time when the API field changed is acceptable.
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
                       format: date-time
                       type: string
                     message:
-                      description: message is a human readable message indicating
-                        details about the transition. This may be an empty string.
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
                       maxLength: 32768
                       type: string
                     observedGeneration:
-                      description: observedGeneration represents the .metadata.generation
-                        that the condition was set based upon. For instance, if .metadata.generation
-                        is currently 12, but the .status.conditions[x].observedGeneration
-                        is 9, the condition is out of date with respect to the current
-                        state of the instance.
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
                       format: int64
                       minimum: 0
                       type: integer
                     reason:
-                      description: reason contains a programmatic identifier indicating
-                        the reason for the condition's last transition. Producers
-                        of specific condition types may define expected values and
-                        meanings for this field, and whether the values are considered
-                        a guaranteed API. The value should be a CamelCase string.
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
                         This field may not be empty.
                       maxLength: 1024
                       minLength: 1
@@ -195,11 +312,12 @@ spec:
                       - Unknown
                       type: string
                     type:
-                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
-                        --- Many .condition.type values are consistent across resources
-                        like Available, but because arbitrary conditions can be useful
-                        (see .node.status.conditions), the ability to deconflict is
-                        important. The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      description: |-
+                        type of condition in CamelCase or in foo.example.com/CamelCase.
+                        ---
+                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
+                        useful (see .node.status.conditions), the ability to deconflict is important.
+                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
                       maxLength: 316
                       pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
@@ -218,46 +336,53 @@ spec:
                   type: string
                 type: array
               currentIndex:
-                description: CurrentIndex is the index in the sequence that is currently
-                  being processed For cluster-scoped sequences, this is the cluster-wide
-                  group index For node-scoped sequences, this tracks the minimum index
-                  across all nodes
+                description: |-
+                  CurrentIndex is the index in the sequence that is currently being processed
+                  For cluster-scoped sequences, this is the cluster-wide group index
+                  For node-scoped sequences, this is the minimum index across participating nodes
                 type: integer
               message:
                 description: Message provides additional information about the current
                   state
                 type: string
+              nodeEligibilityKey:
+                description: NodeEligibilityKey is the node label or taint key managed
+                  for this sequence (node-scoped only)
+                type: string
               nodeStatus:
-                description: NodeStatus tracks per-node sequencing progress (only
-                  for node-scoped sequences)
+                description: |-
+                  NodeStatus lists participating nodes that are not yet fully satisfied (node-scoped only).
+                  Capped at 50 entries; see Summary for totals.
                 items:
                   description: NodeSequenceStatus tracks the sequencing status for
                     a specific node
                   properties:
                     currentIndex:
-                      description: CurrentIndex is the current group index being processed
-                        on this node
+                      description: |-
+                        CurrentIndex is the number of consecutive groups (from the first) that are satisfied on this node.
+                        It is also the index of the group currently being waited on.
                       type: integer
+                    message:
+                      description: Message provides details about what the node is
+                        waiting on
+                      type: string
                     nodeName:
                       description: NodeName is the name of the node
                       type: string
                     phase:
                       description: Phase indicates the current phase for this node
+                        (InProgress or Failed)
                       type: string
-                    readyPodsInCurrentGroup:
-                      description: ReadyPodsInCurrentGroup is the count of ready pods
-                        in the current group on this node
-                      type: integer
                   required:
                   - currentIndex
                   - nodeName
                   - phase
-                  - readyPodsInCurrentGroup
                   type: object
                 type: array
               phase:
-                description: 'Phase indicates the current phase of the sequence Possible
-                  values: Pending, InProgress, Completed, Failed'
+                description: |-
+                  Phase indicates the current phase of the sequence
+                  Possible values: Pending, InProgress, Active, Completed, Failed
                 type: string
               processedPods:
                 description: ProcessedPods is a list of pod names that have been successfully
@@ -269,6 +394,30 @@ spec:
                 description: ReadyPodsInCurrentGroup is the count of ready pods in
                   the current group
                 type: integer
+              summary:
+                description: Summary aggregates per-node progress (node-scoped only)
+                properties:
+                  failedNodes:
+                    description: FailedNodes is the number of nodes with a pod gated
+                      longer than gateTimeout
+                    type: integer
+                  gatedPods:
+                    description: GatedPods is the number of member pods still holding
+                      the scheduling gate
+                    type: integer
+                  satisfiedNodes:
+                    description: SatisfiedNodes is the number of participating nodes
+                      on which every group is satisfied
+                    type: integer
+                  totalNodes:
+                    description: TotalNodes is the number of participating nodes
+                    type: integer
+                required:
+                - failedNodes
+                - gatedPods
+                - satisfiedNodes
+                - totalNodes
+                type: object
             required:
             - currentIndex
             - phase
@@ -278,13 +427,3 @@ spec:
     storage: true
     subresources:
       status: {}
-    additionalPrinterColumns:
-    - name: Phase
-      type: string
-      jsonPath: .status.phase
-    - name: CurrentGroup
-      type: integer
-      jsonPath: .status.currentIndex
-    - name: Age
-      type: date
-      jsonPath: .metadata.creationTimestamp

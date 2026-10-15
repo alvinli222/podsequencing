@@ -72,10 +72,10 @@ func main() {
 	}
 
 	if err = (&controller.PodSequenceReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		Recorder:       mgr.GetEventRecorderFor("pod-sequence-controller"),
-		WebhookEnabled: enableWebhook,
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		Recorder:         mgr.GetEventRecorderFor("pod-sequence-controller"),
+		NodeScopeEnabled: enableWebhook,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PodSequence")
 		os.Exit(1)
