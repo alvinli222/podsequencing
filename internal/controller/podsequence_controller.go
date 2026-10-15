@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/alvinli222/nodeseq"
 	schedulingv1alpha1 "github.com/alvinli222/podsequencing/api/v1alpha1"
 	"github.com/alvinli222/podsequencing/internal/sequence"
 )
@@ -132,7 +133,7 @@ func (r *PodSequenceReconciler) reconcileClusterScoped(ctx context.Context, orig
 				continue
 			}
 			for _, p := range pods {
-				if sequence.HasGate(p, gate) {
+				if nodeseq.HasGate(p, gate) {
 					if err := r.removeGate(ctx, p, gate); err != nil {
 						errs = append(errs, err)
 					} else {
@@ -165,7 +166,7 @@ func (r *PodSequenceReconciler) reconcileClusterScoped(ctx context.Context, orig
 				return ctrl.Result{}, err
 			}
 			for _, p := range passed {
-				if sequence.HasGate(p, gate) {
+				if nodeseq.HasGate(p, gate) {
 					if err := r.removeGate(ctx, p, gate); err != nil {
 						return ctrl.Result{}, err
 					}
@@ -180,7 +181,7 @@ func (r *PodSequenceReconciler) reconcileClusterScoped(ctx context.Context, orig
 			return ctrl.Result{}, err
 		}
 		for _, p := range prevPods {
-			if !sequence.IsPodReady(p) {
+			if !nodeseq.IsPodReady(p) {
 				seq.Status.Message = fmt.Sprintf("Waiting for all pods in %s to become ready", sequence.GroupName(prev, idx-1))
 				return ctrl.Result{RequeueAfter: RequeueDelay}, r.patchStatus(ctx, orig, seq)
 			}
@@ -188,7 +189,7 @@ func (r *PodSequenceReconciler) reconcileClusterScoped(ctx context.Context, orig
 	}
 
 	for _, p := range pods {
-		if sequence.HasGate(p, gate) {
+		if nodeseq.HasGate(p, gate) {
 			if err := r.removeGate(ctx, p, gate); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -200,7 +201,7 @@ func (r *PodSequenceReconciler) reconcileClusterScoped(ctx context.Context, orig
 	names := make([]string, 0, len(pods))
 	for _, p := range pods {
 		names = append(names, p.Name)
-		if sequence.IsPodReady(p) {
+		if nodeseq.IsPodReady(p) {
 			readyCount++
 		}
 	}
@@ -229,7 +230,7 @@ func (r *PodSequenceReconciler) reconcileClusterScoped(ctx context.Context, orig
 	var remaining time.Duration
 	now := r.now()
 	for _, p := range pods {
-		if rem := sequence.ReadyRemaining(p, wait, now); rem > remaining {
+		if rem := nodeseq.ReadyRemaining(p, wait, now); rem > remaining {
 			remaining = rem
 		}
 	}
@@ -296,7 +297,7 @@ func (r *PodSequenceReconciler) reconcileNodeScoped(ctx context.Context, orig, s
 			errs = append(errs, fmt.Errorf("pod %s: %w", a.Pod.Name, err))
 			continue
 		}
-		logger.Info("Removed scheduling gate", "pod", a.Pod.Name, "group", a.Group, "node", sequence.TargetNode(a.Pod), "reason", a.Reason)
+		logger.Info("Removed scheduling gate", "pod", a.Pod.Name, "group", a.Group, "node", nodeseq.TargetNode(a.Pod), "reason", a.Reason)
 		metricUngatedPods.WithLabelValues(seq.Namespace, seq.Name, a.Reason).Inc()
 	}
 
@@ -541,17 +542,11 @@ func (r *PodSequenceReconciler) applyPodAction(ctx context.Context, a PodAction,
 
 // removeGate removes the scheduling gate from a pod with an optimistic-lock patch.
 func (r *PodSequenceReconciler) removeGate(ctx context.Context, pod *corev1.Pod, gate string) error {
-	if !sequence.HasGate(pod, gate) {
+	if !nodeseq.HasGate(pod, gate) {
 		return nil
 	}
 	orig := pod.DeepCopy()
-	var gates []corev1.PodSchedulingGate
-	for _, g := range pod.Spec.SchedulingGates {
-		if g.Name != gate {
-			gates = append(gates, g)
-		}
-	}
-	pod.Spec.SchedulingGates = gates
+	pod.Spec.SchedulingGates = nodeseq.WithoutGate(pod, gate)
 	if err := r.Patch(ctx, pod, client.MergeFromWithOptions(orig, client.MergeFromWithOptimisticLock{})); err != nil {
 		return client.IgnoreNotFound(err)
 	}
@@ -619,7 +614,7 @@ func (r *PodSequenceReconciler) handleDeletion(ctx context.Context, seq *schedul
 	}
 	for i := range podList.Items {
 		p := &podList.Items[i]
-		if !sequence.HasGate(p, gate) {
+		if !nodeseq.HasGate(p, gate) {
 			continue
 		}
 		if sequence.GroupIndexForPod(seq, p) >= 0 || p.Labels[sequence.SequenceLabel] == seq.Name {

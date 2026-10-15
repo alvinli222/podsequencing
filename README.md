@@ -257,4 +257,6 @@ Before uninstalling, delete all sequences and remove hard-coded gates from survi
 
 Go 1.21+ is required. Use `make build`, `make test`, or `make run` (local Cluster mode). After API changes, run `make generate manifests`. Build a custom image with `make docker-build IMG=YOUR_REGISTRY/pod-sequence-controller:TAG`.
 
+Node-scope planning (per-node group satisfaction, which gated pods may start, DaemonSet "expected on node" emulation) lives in the reusable library [github.com/alvinli222/nodeseq](https://github.com/alvinli222/nodeseq). This repository adapts `PodSequence` to it and adds the CRD, webhooks, and node label/taint handling.
+
 Contributions are welcome through pull requests. Licensed under Apache License 2.0.

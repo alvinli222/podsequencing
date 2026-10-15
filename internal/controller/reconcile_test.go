@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/alvinli222/nodeseq"
 	schedulingv1alpha1 "github.com/alvinli222/podsequencing/api/v1alpha1"
 	"github.com/alvinli222/podsequencing/internal/sequence"
 )
@@ -112,14 +113,14 @@ func TestReconcileNodeScopedNodeLabel(t *testing.T) {
 	if v := getNode(t, c, "n2").Labels[key]; v != "0" {
 		t.Fatalf("n2 label = %q, want 0", v)
 	}
-	if sequence.HasGate(getPod(t, c, "gpu-1"), sequence.DefaultSchedulingGate) {
+	if nodeseq.HasGate(getPod(t, c, "gpu-1"), sequence.DefaultSchedulingGate) {
 		t.Fatal("gpu-1 should be ungated")
 	}
-	if !sequence.HasGate(getPod(t, c, "gpu-2"), sequence.DefaultSchedulingGate) {
+	if !nodeseq.HasGate(getPod(t, c, "gpu-2"), sequence.DefaultSchedulingGate) {
 		t.Fatal("gpu-2 should stay gated")
 	}
 	web := getPod(t, c, "web-1")
-	if sequence.HasGate(web, sequence.DefaultSchedulingGate) {
+	if nodeseq.HasGate(web, sequence.DefaultSchedulingGate) {
 		t.Fatal("web-1 should be released with affinity")
 	}
 	expr := web.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions[0]
@@ -193,7 +194,7 @@ func TestReconcileDeletionFailsOpen(t *testing.T) {
 	r, c := newReconciler(t, &clock{now: t0}, seq, &n1, &gpu, &pod)
 
 	reconcileSeq(t, r)
-	if sequence.HasGate(getPod(t, c, "gpu-1"), sequence.DefaultSchedulingGate) {
+	if nodeseq.HasGate(getPod(t, c, "gpu-1"), sequence.DefaultSchedulingGate) {
 		t.Fatal("gates must be removed on deletion")
 	}
 	n := getNode(t, c, "n1")
@@ -265,7 +266,7 @@ func TestReconcileClusterWaitDuration(t *testing.T) {
 		t.Fatal("should advance after waitDuration")
 	}
 	reconcileSeq(t, r)
-	if sequence.HasGate(getPod(t, c, "app"), sequence.DefaultSchedulingGate) {
+	if nodeseq.HasGate(getPod(t, c, "app"), sequence.DefaultSchedulingGate) {
 		t.Fatal("app should be ungated in the next group")
 	}
 }
@@ -288,7 +289,7 @@ func TestReconcileClusterReleasesRecreatedEarlierGroupPods(t *testing.T) {
 	recreated := plainPod("csi-new", csiLabels, gated())
 	r, c := newReconciler(t, &clock{now: t0}, seq, &recreated)
 	reconcileSeq(t, r)
-	if sequence.HasGate(getPod(t, c, "csi-new"), sequence.DefaultSchedulingGate) {
+	if nodeseq.HasGate(getPod(t, c, "csi-new"), sequence.DefaultSchedulingGate) {
 		t.Fatal("recreated pods of a passed group must be released")
 	}
 }
@@ -301,7 +302,7 @@ func TestReconcileClusterCompletedReleasesLatePods(t *testing.T) {
 	late := plainPod("late", appLabels, gated())
 	r, c := newReconciler(t, &clock{now: t0}, seq, &late)
 	reconcileSeq(t, r)
-	if sequence.HasGate(getPod(t, c, "late"), sequence.DefaultSchedulingGate) {
+	if nodeseq.HasGate(getPod(t, c, "late"), sequence.DefaultSchedulingGate) {
 		t.Fatal("pods created after completion must not stay gated")
 	}
 }

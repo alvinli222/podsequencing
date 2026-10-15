@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alvinli222/nodeseq"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -154,85 +155,9 @@ func GroupIndexForPod(seq *schedulingv1alpha1.PodSequence, pod *corev1.Pod) int 
 	return -1
 }
 
-// TargetNode returns the node a pod is bound or pinned to before scheduling. Pods created by the
-// DaemonSet controller carry a required node affinity on metadata.name for exactly one node.
-// Returns "" when the node cannot be determined.
-func TargetNode(pod *corev1.Pod) string {
-	if pod.Spec.NodeName != "" {
-		return pod.Spec.NodeName
-	}
-	if pod.Spec.Affinity == nil || pod.Spec.Affinity.NodeAffinity == nil ||
-		pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
-		return ""
-	}
-	terms := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
-	node := ""
-	for _, term := range terms {
-		termNode := ""
-		for _, f := range term.MatchFields {
-			if f.Key == "metadata.name" && f.Operator == corev1.NodeSelectorOpIn && len(f.Values) == 1 {
-				termNode = f.Values[0]
-			}
-		}
-		if termNode == "" || (node != "" && node != termNode) {
-			return ""
-		}
-		node = termNode
-	}
-	return node
-}
-
-// IsActive reports whether the pod is neither terminating nor finished.
-func IsActive(pod *corev1.Pod) bool {
-	return pod.DeletionTimestamp == nil &&
-		pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed
-}
-
-// HasGate reports whether the pod carries the scheduling gate.
-func HasGate(pod *corev1.Pod, gate string) bool {
-	for _, g := range pod.Spec.SchedulingGates {
-		if g.Name == gate {
-			return true
-		}
-	}
-	return false
-}
-
 // IsBypassed reports whether the pod asks to skip sequencing.
 func IsBypassed(pod *corev1.Pod) bool {
 	return pod.Annotations[BypassAnnotation] == "true"
-}
-
-// ReadyCondition returns the pod's Ready condition, if any.
-func ReadyCondition(pod *corev1.Pod) *corev1.PodCondition {
-	for i := range pod.Status.Conditions {
-		if pod.Status.Conditions[i].Type == corev1.PodReady {
-			return &pod.Status.Conditions[i]
-		}
-	}
-	return nil
-}
-
-// IsPodReady reports whether the pod's Ready condition is True.
-func IsPodReady(pod *corev1.Pod) bool {
-	c := ReadyCondition(pod)
-	return c != nil && c.Status == corev1.ConditionTrue
-}
-
-// ReadyRemaining returns how much longer the pod must stay Ready to satisfy wait.
-// Returns 0 when satisfied. The pod must be Ready.
-func ReadyRemaining(pod *corev1.Pod, wait time.Duration, now time.Time) time.Duration {
-	if wait <= 0 {
-		return 0
-	}
-	c := ReadyCondition(pod)
-	if c == nil || c.LastTransitionTime.IsZero() {
-		return 0
-	}
-	if remaining := c.LastTransitionTime.Add(wait).Sub(now); remaining > 0 {
-		return remaining
-	}
-	return 0
 }
 
 // EligibilityRequirement is the node affinity requirement added to an unpinned pod of group
@@ -331,7 +256,7 @@ func PendingRequiredKeys(pods []corev1.Pod) map[string]bool {
 	keys := map[string]bool{}
 	for i := range pods {
 		p := &pods[i]
-		if p.Spec.NodeName != "" || !IsActive(p) || p.Spec.Affinity == nil || p.Spec.Affinity.NodeAffinity == nil ||
+		if p.Spec.NodeName != "" || !nodeseq.IsActive(p) || p.Spec.Affinity == nil || p.Spec.Affinity.NodeAffinity == nil ||
 			p.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
 			continue
 		}

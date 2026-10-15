@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"github.com/alvinli222/nodeseq"
 	schedulingv1alpha1 "github.com/alvinli222/podsequencing/api/v1alpha1"
 	"github.com/alvinli222/podsequencing/internal/sequence"
 )
@@ -85,7 +86,7 @@ func (m *PodGateInjector) Handle(ctx context.Context, req admission.Request) adm
 			"podsequence: pod matches no group of PodSequence " + seqName + "; pod not gated")
 	}
 	gate := sequence.GateName(seq)
-	if sequence.HasGate(pod, gate) {
+	if nodeseq.HasGate(pod, gate) {
 		return admission.Allowed("gate already present")
 	}
 	pod.Spec.SchedulingGates = append(pod.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: gate})

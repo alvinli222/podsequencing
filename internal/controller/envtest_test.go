@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
+	"github.com/alvinli222/nodeseq"
 	schedulingv1alpha1 "github.com/alvinli222/podsequencing/api/v1alpha1"
 	"github.com/alvinli222/podsequencing/internal/sequence"
 )
@@ -132,14 +133,14 @@ func TestEnvtest(t *testing.T) {
 			}
 			return p
 		}
-		if sequence.HasGate(get("gpu-1"), sequence.DefaultSchedulingGate) {
+		if nodeseq.HasGate(get("gpu-1"), sequence.DefaultSchedulingGate) {
 			t.Fatal("gpu-1 should be ungated (csi Ready on n1)")
 		}
-		if !sequence.HasGate(get("gpu-2"), sequence.DefaultSchedulingGate) {
+		if !nodeseq.HasGate(get("gpu-2"), sequence.DefaultSchedulingGate) {
 			t.Fatal("gpu-2 should stay gated (no csi pod on n2)")
 		}
 		w := get("web-1")
-		if sequence.HasGate(w, sequence.DefaultSchedulingGate) {
+		if nodeseq.HasGate(w, sequence.DefaultSchedulingGate) {
 			t.Fatal("web-1 should be released")
 		}
 		exprs := w.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions
@@ -158,7 +159,7 @@ func TestEnvtest(t *testing.T) {
 		if _, err := r.Reconcile(ctx, req); err != nil {
 			t.Fatal(err)
 		}
-		if sequence.HasGate(get("gpu-2"), sequence.DefaultSchedulingGate) {
+		if nodeseq.HasGate(get("gpu-2"), sequence.DefaultSchedulingGate) {
 			t.Fatal("gpu-2 should be released when the sequence is deleted")
 		}
 	})

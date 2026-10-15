@@ -1,3 +1,5 @@
+github.com/alvinli222/nodeseq v0.1.0 h1:l/kovyz9RlGC/gGdMmPxvkRp9A2mgZvDXCQ1MxO0wmM=
+github.com/alvinli222/nodeseq v0.1.0/go.mod h1:9xqJCAI7hbtvEB0rEaJjzW+HpRz7GkixZu65qNZslqM=
 github.com/benbjohnson/clock v1.1.0/go.mod h1:J11/hYXuz8f4ySSvYwY0FKfm+ezbsZBKZxNJlLklBHA=
 github.com/benbjohnson/clock v1.3.0 h1:ip6w0uFQkncKQ979AypyG0ER7mqUSBdKLOgAle/AT8A=
 github.com/benbjohnson/clock v1.3.0/go.mod h1:J11/hYXuz8f4ySSvYwY0FKfm+ezbsZBKZxNJlLklBHA=
