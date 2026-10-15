@@ -1,29 +1,49 @@
-# Example: Node-level sequencing for device plugin dependencies
-# This example demonstrates GPU device plugin must be ready before GPU workloads start
+# Example: GPU node bootstrap ordering, DaemonSet -> DaemonSet -> Deployment.
+#
+#   1. NVIDIA device plugin (DaemonSet)
+#   2. DCGM exporter (DaemonSet) - waits for the device plugin on the SAME node
+#   3. Training workload (Deployment) - only scheduled to nodes where 1 and 2 are Ready
+#
+# DaemonSet pods are pinned to their node before scheduling, so the controller releases the DCGM
+# pod on node N as soon as the device plugin pod on node N is Ready (and has been for 10s).
+# Each node progresses independently; a slow node never blocks the others.
+# If a DCGM pod waits longer than gateTimeout, its node is reported as Failed in status
+# (and a Warning event is emitted) but the pod stays gated. Add the annotation
+# podsequence.example.com/bypass: "true" to a pod to release it manually.
 
 apiVersion: scheduling.example.com/v1alpha1
 kind: PodSequence
 metadata:
-  name: gpu-device-plugin-sequence
+  name: gpu-bootstrap
   namespace: kube-system
 spec:
-  scope: Node  # Node-level sequencing
+  scope: Node
+  nodeSelector:            # only GPU nodes participate
+    matchLabels:
+      accelerator: nvidia
+  gateTimeout: 15m
   podGroups:
     - name: "GPU Device Plugin"
+      waitDuration: 10s
       podSelector:
         matchLabels:
           name: nvidia-device-plugin-ds
+    - name: "DCGM Exporter"
+      podSelector:
+        matchLabels:
+          name: dcgm-exporter
     - name: "GPU Workloads"
       podSelector:
         matchLabels:
           workload-type: gpu-training
 ---
-# NVIDIA Device Plugin DaemonSet
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: nvidia-device-plugin-daemonset
   namespace: kube-system
+  labels:
+    podsequence.example.com/sequence: gpu-bootstrap
 spec:
   selector:
     matchLabels:
@@ -34,9 +54,10 @@ spec:
     metadata:
       labels:
         name: nvidia-device-plugin-ds
+        podsequence.example.com/sequence: gpu-bootstrap
     spec:
-      schedulingGates:
-      - name: podsequence.example.com/sequence-gate
+      nodeSelector:
+        accelerator: nvidia
       tolerations:
       - key: nvidia.com/gpu
         operator: Exists
@@ -68,8 +89,43 @@ spec:
         hostPath:
           path: /var/lib/kubelet/device-plugins
 ---
-# ML Training Job Deployment
-# These will only start on each node after the device plugin is ready on that node
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: dcgm-exporter
+  namespace: kube-system
+  labels:
+    podsequence.example.com/sequence: gpu-bootstrap
+spec:
+  selector:
+    matchLabels:
+      name: dcgm-exporter
+  template:
+    metadata:
+      labels:
+        name: dcgm-exporter
+        podsequence.example.com/sequence: gpu-bootstrap
+    spec:
+      nodeSelector:
+        accelerator: nvidia
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: dcgm-exporter
+        image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.5-3.4.0-ubuntu22.04
+        ports:
+        - name: metrics
+          containerPort: 9400
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 9400
+          initialDelaySeconds: 10
+          periodSeconds: 5
+---
+# Only scheduled to GPU nodes where both DaemonSets are Ready (node label value > 1).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -84,9 +140,12 @@ spec:
     metadata:
       labels:
         workload-type: gpu-training
+        podsequence.example.com/sequence: gpu-bootstrap
     spec:
-      schedulingGates:
-      - name: podsequence.example.com/sequence-gate
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
       containers:
       - name: training
         image: pytorch/pytorch:2.0.0-cuda11.7-cudnn8-runtime
