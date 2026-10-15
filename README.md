@@ -10,7 +10,7 @@ The Pod Sequence Controller allows you to define ordered **pod groups** where sc
 Multiple pods in a tier start together across the entire cluster, with the next tier waiting for ALL pods in the current tier to be ready cluster-wide.
 
 ### Node-Scoped Sequencing
-Pods are sequenced independently on each node. On each node, the next tier waits for ALL pods in the current tier on **that specific node** to be ready.
+Pods are sequenced independently on each node. On each node, the next tier waits for ALL pods in the current tier on **that specific node** to be ready. Each node progresses on its own; a slow node never blocks the others, and sequencing keeps being enforced as nodes join, DaemonSets roll, and pods are recreated.
 
 This is useful for scenarios such as:
 
@@ -28,12 +28,12 @@ This is useful for scenarios such as:
 
 ## How It Works
 
-1. **Create Pods with Scheduling Gates**: Define your pods with a scheduling gate (e.g., `podsequence.example.com/sequence-gate`)
+1. **Create Pods with Scheduling Gates**: Define your pods with a scheduling gate (e.g., `podsequence.example.com/sequence-gate`), or, in full mode, add the label `podsequence.example.com/sequence: <podsequence-name>` and let the webhook inject the gate
 2. **Define Pod Groups**: Organize your pods into logical groups (tiers) in a `PodSequence` resource
 3. **Choose Scope**: Specify `scope: Cluster` (default) or `scope: Node`
 4. **Controller manages sequencing**:
    - **Cluster scope**: All pods in a group have gates removed together; next group waits for all to be ready cluster-wide
-   - **Node scope**: Pods in a group have gates removed per-node; next group on each node waits for all to be ready on that node
+   - **Node scope**: See [Node-Scoped Sequencing in Depth](#node-scoped-sequencing-in-depth)
 
 ### Cluster-Scoped Example
 - **Group 1** (Database): pod-1, pod-2 → Both start immediately
@@ -118,9 +118,9 @@ kubectl apply -f config/rbac/rbac-lite.yaml
 **Complete deployment with node-scoped sequencing**
 
 Includes all Lite Mode features, plus:  
-✅ Per-node sequencing with taints  
-✅ Webhook for automatic toleration injection  
-✅ Support for DaemonSet dependencies  
+✅ Per-node sequencing (DaemonSet → DaemonSet → Deployment)  
+✅ Webhook that injects scheduling gates (no hand-written gates in templates)  
+✅ Node label (default) or taint based eligibility for non-DaemonSet pods  
 
 Requires:
 - Certificate generation (OpenSSL)
@@ -138,9 +138,10 @@ chmod +x config/webhook/generate-certs.sh
 # 3. Deploy webhook configuration
 kubectl apply -f config/webhook/webhook.yaml
 
-# 4. Patch webhook with CA bundle (command from step 2)
-kubectl patch mutatingwebhookconfiguration podsequence-mutating-webhook \
-  --type='json' -p='[{"op": "replace", "path": "/webhooks/0/clientConfig/caBundle", "value":"<CA_BUNDLE>"}]'
+# 4. Patch both webhooks with the CA bundle (command printed by step 2)
+kubectl patch mutatingwebhookconfiguration podsequence-mutating-webhook --type='json' -p='[
+  {"op": "replace", "path": "/webhooks/0/clientConfig/caBundle", "value":"<CA_BUNDLE>"},
+  {"op": "replace", "path": "/webhooks/1/clientConfig/caBundle", "value":"<CA_BUNDLE>"}]'
 
 # 5. Deploy the controller (full mode)
 kubectl apply -f config/rbac/rbac.yaml
@@ -270,7 +271,10 @@ kubectl apply -f config/samples/example-podsequence.yaml
 
 ### DaemonSet Example with Label Selector
 
-For DaemonSets (which generate pod names), use label selectors:
+For DaemonSets (which generate pod names), use label selectors. In full mode, opt pods in with the
+`podsequence.example.com/sequence` label instead of writing `schedulingGates` into the template.
+A gate hard-coded in a DaemonSet template applies to **every** pod the DaemonSet ever creates, so
+only do that if the controller will keep managing the sequence.
 
 ```yaml
 apiVersion: scheduling.example.com/v1alpha1
@@ -295,6 +299,8 @@ kind: DaemonSet
 metadata:
   name: gpu-plugin
   namespace: default
+  labels:
+    podsequence.example.com/sequence: daemonset-sequence
 spec:
   selector:
     matchLabels:
@@ -303,9 +309,8 @@ spec:
     metadata:
       labels:
         app: gpu-plugin
+        podsequence.example.com/sequence: daemonset-sequence  # webhook injects the gate
     spec:
-      schedulingGates:
-      - name: podsequence.example.com/sequence-gate
       containers:
       - name: plugin
         image: nvidia/k8s-device-plugin:v0.14.0
@@ -421,7 +426,70 @@ spec:
 - **Each node progresses independently**
 - **Uses label selectors** to support DaemonSets with generated pod names
 
-See `config/samples/node-scoped-csi-example.yaml` and `config/samples/node-scoped-device-plugin-example.yaml` for complete examples.
+See `config/samples/node-scoped-csi-example.yaml`, `config/samples/node-scoped-device-plugin-example.yaml` (DaemonSet → DaemonSet → Deployment) and `config/samples/node-scoped-taint-example.yaml` (Taint mode) for complete examples.
+
+## Node-Scoped Sequencing in Depth
+
+The Kubernetes scheduler picks a node *before* anything runs there, so "wait until X is ready on the
+node" has to be enforced differently depending on whether a pod's node is known in advance.
+
+### Pinned pods (DaemonSet pods)
+
+The DaemonSet controller creates every daemon pod with a required node affinity on
+`metadata.name`, so a gated DaemonSet pod already knows its node. The controller releases a
+group-*k* pod on node *N* as soon as groups `0..k-1` are **satisfied on N**. No taints are needed and
+nodes never wait for each other.
+
+### Unpinned pods (Deployments, Jobs, ...)
+
+Their node is chosen at scheduling time, so the controller tracks, per node, how many consecutive
+groups are satisfied and exposes it to the scheduler with `spec.nodeEligibility.method`:
+
+| Method | Node gets | Member pod of group *k* is released with | Affects non-members? |
+|---|---|---|---|
+| `NodeLabel` (default) | label `podsequence.example.com/seq-<hash>=<satisfied>` | required node affinity `seq-<hash> Gt k-1` | No |
+| `Taint` | taint `podsequence.example.com/seq-<hash>=<satisfied>:NoSchedule`, removed when every group is satisfied | tolerations for values `k..groups-1` | **Yes**, every pod that doesn't tolerate it |
+
+The key is reported in `status.nodeEligibilityKey`. In `Taint` mode, DaemonSets in the sequence need
+the toleration in their **pod template**. The DaemonSet webhook adds it for DaemonSets labeled
+`podsequence.example.com/sequence`, and the `Degraded` condition reports any that are missing it.
+With `NodeLabel`, unpinned members can only run on participating nodes. With `Taint`, they can also
+run on non-participating (untainted) nodes.
+
+### When is a group "satisfied" on a node?
+
+- every active pod of the group targeting the node is `Ready` (for at least `waitDuration`), and
+- every DaemonSet in the group that **should** run on the node (template nodeSelector/affinity and
+  taints/tolerations, evaluated like the DaemonSet controller) already has a pod there. This way a
+  freshly joined node isn't treated as ready before the DaemonSet pod exists.
+- If the group has no pods on the node and no DaemonSet is expected there, `policy` decides:
+  `SkipIfNotScheduled` (default) treats it as satisfied, `RequireOnNode` does not.
+
+### Other node-scope options
+
+| Field | Description |
+|---|---|
+| `spec.nodeSelector` | Only nodes matching this label selector participate. Pinned pods on other nodes are released immediately. |
+| `spec.gateTimeout` | A pinned pod gated longer than this marks its node `Failed` in `status.nodeStatus`, sets `Degraded=True` and emits a Warning event. The pod **stays gated**. |
+| `podsequence.example.com/bypass: "true"` (pod annotation) | Releases that pod immediately (manual escape hatch). |
+
+Node-scoped sequences never reach `Completed`: they stay `Active` and keep enforcing ordering for new
+nodes, DaemonSet rolling updates and recreated pods. Deleting the PodSequence releases every pod it
+still gates and removes its node labels and taints.
+
+### Limitations
+
+- **Ordering applies to scheduling only.** After a node reboot or kubelet restart, pods already
+  bound to that node are restarted by the kubelet without any ordering. For runtime dependencies, also
+  add an init container or `startupProbe` to dependents (for example, wait for the CSI socket).
+- `NoSchedule` never evicts: if a dependency later becomes unready, running dependents are unaffected
+  and only new pods wait.
+- Prefer native signals where they exist. Pods requesting an extended resource such as `nvidia.com/gpu`
+  already can't schedule until the device plugin advertises it.
+- In `Taint` mode, a new node can accept pods before the controller taints it. Register nodes with the
+  taint (value `0`) to close that window (kubelet `--register-with-taints`, AKS `--node-taints`,
+  Karpenter `startupTaints`).
+- Requires Kubernetes 1.27+ (mutable scheduling directives on gated pods; GA in 1.30).
 
 ## PodSequence API
 
@@ -433,26 +501,33 @@ See `config/samples/node-scoped-csi-example.yaml` and `config/samples/node-scope
 | `scope` | `string` | No | `Cluster` (default) or `Node` - determines sequencing scope |
 | `namespace` | `string` | No | Namespace where pods are located (defaults to PodSequence namespace) |
 | `schedulingGateName` | `string` | No | Name of the scheduling gate to manage (default: `podsequence.example.com/sequence-gate`) |
+| `nodeSelector` | `LabelSelector` | No | Node scope: nodes that participate (default: all) |
+| `nodeEligibility.method` | `string` | No | Node scope: `NodeLabel` (default) or `Taint` |
+| `gateTimeout` | `duration` | No | Node scope: mark a node `Failed` when a pinned pod is gated longer than this (pod stays gated) |
 
 #### PodGroup Fields
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | `string` | No | Optional name for the group (for identification) |
-| `pods` | `[]string` | Conditional | List of explicit pod names in this group. Either `pods` or `podSelector` must be specified. |
-| `podSelector` | `LabelSelector` | Conditional | Label selector to match pods in this group. Either `pods` or `podSelector` must be specified. Use this for DaemonSets or Deployments. |
-| `nodeSelector` | `map[string]string` | No | Node selector for node-scoped sequences (future use) |
+| `pods` | `[]string` | Conditional | List of explicit pod names in this group. Exactly one of `pods` or `podSelector` must be specified. Not allowed with `scope: Node`. |
+| `podSelector` | `LabelSelector` | Conditional | Label selector to match pods in this group. Use this for DaemonSets or Deployments. |
+| `waitDuration` | `duration` | No | Extra time pods must have been Ready before the next group starts (per node for node scope) |
+| `policy` | `string` | No | Node scope: `SkipIfNotScheduled` (default) or `RequireOnNode` |
 
 ### Status Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `phase` | `string` | Current phase: `Pending`, `InProgress`, `Completed`, or `Failed` |
+| `phase` | `string` | `Pending`, `InProgress`, `Active` (node scope, all nodes satisfied), `Completed` (cluster scope), or `Failed` |
 | `currentIndex` | `int` | Index currently being processed (cluster-wide or min across nodes) |
-| `nodeStatus` | `[]NodeSequenceStatus` | Per-node status for node-scoped sequences |
+| `summary` | `NodeSummary` | Node scope: `totalNodes`, `satisfiedNodes`, `failedNodes`, `gatedPods` |
+| `nodeStatus` | `[]NodeSequenceStatus` | Node scope: nodes not yet fully satisfied (failed first, max 50) |
+| `nodeEligibilityKey` | `string` | Node scope: the node label/taint key managed for this sequence |
+| `conditions` | `[]Condition` | Node scope: `Ready`, `Degraded` |
 | `currentGroupPods` | `[]string` | Pod names in the current group (cluster-scoped only) |
 | `readyPodsInCurrentGroup` | `int` | Count of ready pods in current group (cluster-scoped only) |
-| `processedPods` | `[]string` | List of pods that have been successfully processed |
+| `processedPods` | `[]string` | List of pods that have been successfully processed (cluster-scoped only) |
 | `message` | `string` | Human-readable status message |
 
 #### NodeSequenceStatus Fields (Node-scoped only)
@@ -460,10 +535,19 @@ See `config/samples/node-scoped-csi-example.yaml` and `config/samples/node-scope
 | Field | Type | Description |
 |-------|------|-------------|
 | `nodeName` | `string` | Name of the node |
-| `currentIndex` | `int` | Current group index on this node |
-| `readyPodsInCurrentGroup` | `int` | Ready pods in current group on this node |
-| `phase` | `string` | Phase for this node |
-| `conditions` | `[]Condition` | Standard Kubernetes conditions |
+| `currentIndex` | `int` | Number of consecutive groups satisfied on this node (= group being waited on) |
+| `phase` | `string` | `InProgress` or `Failed` (gateTimeout exceeded) |
+| `message` | `string` | What the node is waiting on |
+
+### Metrics
+
+| Metric | Description |
+|---|---|
+| `podsequence_nodes_total{namespace,name}` | Participating nodes |
+| `podsequence_nodes_satisfied{namespace,name}` | Nodes where every group is satisfied |
+| `podsequence_nodes_failed{namespace,name}` | Nodes exceeding `gateTimeout` |
+| `podsequence_gated_pods{namespace,name}` | Member pods still gated |
+| `podsequence_ungated_pods_total{namespace,name,reason}` | Gates removed, by reason |
 
 ## Development
 
@@ -485,6 +569,20 @@ make run
 make test
 ```
 
+Integration tests against a real API server run when `KUBEBUILDER_ASSETS` is set:
+
+```bash
+go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.19
+export KUBEBUILDER_ASSETS=$(setup-envtest use 1.30.x -p path)
+go test ./internal/controller -run TestEnvtest -v
+```
+
+### Regenerate deepcopy code and the CRD after API changes
+
+```bash
+make generate manifests
+```
+
 ### Build Docker image
 
 ```bash
@@ -502,19 +600,18 @@ make deploy-example
 
 ## Architecture
 
-The controller uses the controller-runtime framework and implements a reconciliation loop that:
+The controller uses the controller-runtime framework. It watches `PodSequence` resources, Pods, and (in full mode) Nodes and DaemonSets, and reconciles on changes:
 
-1. Watches `PodSequence` resources
-2. For each sequence, processes pods in order
-3. Checks if the current pod in sequence is ready
-4. If ready, removes the scheduling gate from the next pod
-5. Continues until all pods in the sequence are ready
+- **Cluster scope**: processes groups in order and removes gates from group *N+1* once every pod in group *N* is ready (plus `waitDuration`).
+- **Node scope**: computes, for every participating node, how many consecutive groups are satisfied. It releases pinned pods whose earlier groups are satisfied on their node, releases unpinned pods with a node affinity or tolerations, and keeps one node label or taint per sequence up to date.
 
 ### Key Components
 
 - **Custom Resource Definition (CRD)**: Defines the `PodSequence` API
-- **Controller**: Reconciliation logic for managing pod scheduling gates
-- **RBAC**: Permissions to watch/update pods and PodSequence resources
+- **Controller**: Reconciliation logic for managing scheduling gates and node labels/taints (`internal/controller`)
+- **Webhooks** (full mode): Inject scheduling gates into opted-in pods and prepare opted-in DaemonSets (`internal/webhook`)
+- **Orphan cleaner**: Removes node labels/taints of deleted PodSequences, plus legacy `-group-N-blocked` taints, every 5 minutes
+- **RBAC**: Permissions to watch/patch pods, nodes, and DaemonSets
 
 ## Troubleshooting
 

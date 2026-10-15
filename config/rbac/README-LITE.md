@@ -55,7 +55,7 @@ spec:
 The controller will immediately fail the PodSequence with this message:
 ```
 Phase: Failed
-Message: Node-scoped sequencing requires webhook to be enabled. Use scope: Cluster or redeploy with --enable-webhook flag.
+Message: Node-scoped sequencing requires full mode. Use scope: Cluster or redeploy with --enable-webhook flag.
 ```
 
 ## When to Use Full Deployment
