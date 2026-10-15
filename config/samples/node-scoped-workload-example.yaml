@@ -1,0 +1,85 @@
+# Requires Full mode and Linux workers labeled podsequence-demo=true.
+# Explicit gates make demo startup independent of webhook admission timing.
+# Delete this manifest before stopping the controller.
+apiVersion: scheduling.example.com/v1alpha1
+kind: PodSequence
+metadata:
+  name: node-startup
+  namespace: default
+spec:
+  scope: Node
+  nodeSelector:
+    matchLabels:
+      podsequence-demo: "true"
+      kubernetes.io/os: linux
+  nodeEligibility:
+    method: NodeLabel
+  podGroups:
+    - name: Node agent
+      policy: RequireOnNode
+      waitDuration: 10s
+      podSelector:
+        matchLabels:
+          app: demo-node-agent
+    - name: Application
+      podSelector:
+        matchLabels:
+          app: demo-app
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: demo-node-agent
+  namespace: default
+  labels:
+    podsequence.example.com/sequence: node-startup
+spec:
+  selector:
+    matchLabels:
+      app: demo-node-agent
+  template:
+    metadata:
+      labels:
+        app: demo-node-agent
+        podsequence.example.com/sequence: node-startup
+    spec:
+      nodeSelector:
+        podsequence-demo: "true"
+        kubernetes.io/os: linux
+      schedulingGates:
+        - name: podsequence.example.com/sequence-gate
+      containers:
+        - name: agent
+          image: nginx:stable
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            periodSeconds: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: demo-app
+  template:
+    metadata:
+      labels:
+        app: demo-app
+        podsequence.example.com/sequence: node-startup
+    spec:
+      schedulingGates:
+        - name: podsequence.example.com/sequence-gate
+      containers:
+        - name: app
+          image: nginx:stable
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            periodSeconds: 5
