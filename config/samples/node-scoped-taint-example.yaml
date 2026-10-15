@@ -1,0 +1,59 @@
+# Example: Taint mode - keep ALL workloads off a node until a node agent is Ready on it.
+#
+# With nodeEligibility.method: Taint the controller taints every participating node with
+#   podsequence.example.com/seq-<hash>=<satisfied groups>:NoSchedule
+# and removes the taint once every group is satisfied on that node. Any pod that does not
+# tolerate the taint (members and non-members alike) stays off the node until then.
+#
+# Requirements:
+# - DaemonSets in the sequence must tolerate the taint in their POD TEMPLATE (the DaemonSet
+#   controller checks template tolerations before creating pods). Label the DaemonSet with
+#   podsequence.example.com/sequence and the webhook adds the toleration on create/update.
+#   The PodSequence must exist before the DaemonSet is created for this to happen; otherwise
+#   the Degraded condition reports the missing toleration.
+# - To close the race where a brand-new node accepts pods before the controller taints it,
+#   register nodes with the taint already present (value "0"), e.g. kubelet
+#   --register-with-taints, AKS `--node-taints`, or Karpenter `startupTaints`. The key is in
+#   `kubectl get podseq node-agent-first -o jsonpath='{.status.nodeEligibilityKey}'`.
+
+apiVersion: scheduling.example.com/v1alpha1
+kind: PodSequence
+metadata:
+  name: node-agent-first
+  namespace: kube-system
+spec:
+  scope: Node
+  nodeEligibility:
+    method: Taint
+  podGroups:
+    - name: "Security Agent"
+      policy: RequireOnNode
+      podSelector:
+        matchLabels:
+          app: security-agent
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: security-agent
+  namespace: kube-system
+  labels:
+    podsequence.example.com/sequence: node-agent-first
+spec:
+  selector:
+    matchLabels:
+      app: security-agent
+  template:
+    metadata:
+      labels:
+        app: security-agent
+    spec:
+      priorityClassName: system-node-critical
+      containers:
+      - name: agent
+        image: busybox:latest
+        command: ["sh", "-c", "sleep 15; touch /tmp/ready; sleep infinity"]
+        readinessProbe:
+          exec:
+            command: ["test", "-f", "/tmp/ready"]
+          periodSeconds: 5

@@ -1,6 +1,9 @@
 # Test example: Node-scoped sequencing with multi-replica deployments across 2 zones
 # Each node sequences independently: test-pod-1 → test-pod-2 → test-pod-3
-# Each deployment has 2 replicas spread across zones
+# Each deployment has 2 replicas spread across zones.
+# Pods opt in via the podsequence.example.com/sequence label (the webhook injects the gate); later
+# groups are steered with a node affinity on the sequence's node label. RequireOnNode makes nodes
+# without a Ready pod of that group ineligible for later groups.
 apiVersion: scheduling.example.com/v1alpha1
 kind: PodSequence
 metadata:
@@ -10,11 +13,13 @@ spec:
   scope: Node  # Node-scoped: each node sequences independently
   podGroups:
     - name: "Test Pod 1"
+      policy: RequireOnNode
       podSelector:
         matchLabels:
           app: test-node-scoped
           tier: pod1
     - name: "Test Pod 2"
+      policy: RequireOnNode
       podSelector:
         matchLabels:
           app: test-node-scoped
@@ -42,15 +47,8 @@ spec:
       labels:
         app: test-node-scoped
         tier: pod1
+        podsequence.example.com/sequence: test-node-scoped-sequence
     spec:
-      schedulingGates:
-      - name: podsequence.example.com/sequence-gate
-      tolerations:
-      # Group 0 tolerates all group taints - can schedule anywhere
-      - key: podsequence.example.com/test-node-scoped-sequence-group-1-blocked
-        operator: Exists
-      - key: podsequence.example.com/test-node-scoped-sequence-group-2-blocked
-        operator: Exists
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -104,13 +102,8 @@ spec:
       labels:
         app: test-node-scoped
         tier: pod2
+        podsequence.example.com/sequence: test-node-scoped-sequence
     spec:
-      schedulingGates:
-      - name: podsequence.example.com/sequence-gate
-      tolerations:
-      # Group 1 tolerates only group-2-blocked - can only schedule where group-0 is ready
-      - key: podsequence.example.com/test-node-scoped-sequence-group-2-blocked
-        operator: Exists
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -164,11 +157,8 @@ spec:
       labels:
         app: test-node-scoped
         tier: pod3
+        podsequence.example.com/sequence: test-node-scoped-sequence
     spec:
-      schedulingGates:
-      - name: podsequence.example.com/sequence-gate
-      tolerations: []
-      # Group 2 has no tolerations - can only schedule where all previous groups are ready
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

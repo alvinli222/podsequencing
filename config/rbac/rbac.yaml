@@ -65,8 +65,15 @@ rules:
   - get
   - list
   - watch
-  - update
   - patch
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - coordination.k8s.io
   resources:
@@ -112,8 +119,10 @@ spec:
     spec:
       serviceAccountName: pod-sequence-controller
       tolerations:
-      - key: podsequence.example.com
-        operator: Exists
+      # The controller must be able to run on nodes it has tainted (Taint mode), otherwise a
+      # restart while nodes are tainted would deadlock. Taint keys are per sequence
+      # (podsequence.example.com/seq-<hash>), so tolerate every NoSchedule taint.
+      - operator: Exists
         effect: NoSchedule
       volumes:
       - name: cert

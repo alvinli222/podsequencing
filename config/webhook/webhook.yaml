@@ -1,9 +1,18 @@
 ---
+# Mutating webhooks for the PodSequence controller (full mode).
+# Both webhooks only see objects that opt in with the podsequence.example.com/sequence label
+# (objectSelector), so unrelated workloads are never sent to the webhook.
+# failurePolicy Ignore: if the webhook is unavailable, member pods are created WITHOUT a gate and
+# start unordered. Switch to Fail to block member pod creation instead.
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
   name: podsequence-mutating-webhook
+  # If you use cert-manager, replace the manual caBundle step with:
+  # annotations:
+  #   cert-manager.io/inject-ca-from: pod-sequence-system/pod-sequence-webhook-cert
 webhooks:
+# Injects the scheduling gate into opted-in pods.
 - name: mpod.podsequence.example.com
   clientConfig:
     service:
@@ -16,14 +25,46 @@ webhooks:
     apiGroups: [""]
     apiVersions: ["v1"]
     resources: ["pods"]
+  objectSelector:
+    matchExpressions:
+    - key: podsequence.example.com/sequence
+      operator: Exists
+  namespaceSelector:
+    matchExpressions:
+    - key: kubernetes.io/metadata.name
+      operator: NotIn
+      values: ["pod-sequence-system"]
   admissionReviewVersions: ["v1"]
   sideEffects: None
   failurePolicy: Ignore
+  timeoutSeconds: 5
+# Copies the opt-in label into DaemonSet pod templates and, in Taint mode, adds the taint
+# toleration to the template (the DaemonSet controller checks template tolerations).
+- name: mdaemonset.podsequence.example.com
+  clientConfig:
+    service:
+      name: pod-sequence-webhook
+      namespace: pod-sequence-system
+      path: /mutate-apps-v1-daemonset
+    caBundle: "" # Will be injected by cert-manager or manually
+  rules:
+  - operations: ["CREATE", "UPDATE"]
+    apiGroups: ["apps"]
+    apiVersions: ["v1"]
+    resources: ["daemonsets"]
+  objectSelector:
+    matchExpressions:
+    - key: podsequence.example.com/sequence
+      operator: Exists
   namespaceSelector:
     matchExpressions:
-    - key: podsequence-enabled
-      operator: In
-      values: ["true"]
+    - key: kubernetes.io/metadata.name
+      operator: NotIn
+      values: ["pod-sequence-system"]
+  admissionReviewVersions: ["v1"]
+  sideEffects: None
+  failurePolicy: Ignore
+  timeoutSeconds: 5
 ---
 apiVersion: v1
 kind: Service

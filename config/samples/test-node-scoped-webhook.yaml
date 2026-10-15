@@ -1,3 +1,8 @@
+# Node-scoped sequencing with Deployments (unpinned pods).
+# Pods opt in with the podsequence.example.com/sequence label; the webhook injects the scheduling gate.
+# Groups 1 and 2 are released with a required node affinity on the sequence's node label, so on each
+# node test-pod-2 only lands where a Ready test-pod-1 runs, and test-pod-3 only where both are Ready.
+# policy: RequireOnNode makes a node without any pod of that group ineligible for later groups.
 apiVersion: scheduling.example.com/v1alpha1
 kind: PodSequence
 metadata:
@@ -7,10 +12,12 @@ spec:
   scope: Node
   podGroups:
   - name: "Test Pod 1"
+    policy: RequireOnNode
     podSelector:
       matchLabels:
         app: test-pod-1
   - name: "Test Pod 2"
+    policy: RequireOnNode
     podSelector:
       matchLabels:
         app: test-pod-2
@@ -33,12 +40,8 @@ spec:
     metadata:
       labels:
         app: test-pod-1
-      annotations:
-        podsequence.example.com/name: "test-node-scoped-sequence"
-        podsequence.example.com/group: "0"
+        podsequence.example.com/sequence: test-node-scoped-sequence
     spec:
-      schedulingGates:
-      - name: podsequence.example.com/sequence-gate
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -83,12 +86,8 @@ spec:
     metadata:
       labels:
         app: test-pod-2
-      annotations:
-        podsequence.example.com/name: "test-node-scoped-sequence"
-        podsequence.example.com/group: "1"
+        podsequence.example.com/sequence: test-node-scoped-sequence
     spec:
-      schedulingGates:
-      - name: podsequence.example.com/sequence-gate
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -133,12 +132,8 @@ spec:
     metadata:
       labels:
         app: test-pod-3
-      annotations:
-        podsequence.example.com/name: "test-node-scoped-sequence"
-        podsequence.example.com/group: "2"
+        podsequence.example.com/sequence: test-node-scoped-sequence
     spec:
-      schedulingGates:
-      - name: podsequence.example.com/sequence-gate
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

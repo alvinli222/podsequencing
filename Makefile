@@ -34,6 +34,23 @@ vet: ## Run go vet against code.
 test: fmt vet ## Run tests.
 	go test ./... -coverprofile cover.out
 
+CONTROLLER_GEN ?= $(GOBIN)/controller-gen
+CONTROLLER_TOOLS_VERSION ?= v0.14.0
+
+.PHONY: controller-gen
+controller-gen: ## Install controller-gen.
+	test -s $(CONTROLLER_GEN) || GOBIN=$(GOBIN) go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
+
+.PHONY: generate
+generate: controller-gen ## Regenerate DeepCopy implementations.
+	$(CONTROLLER_GEN) object paths=./api/v1alpha1
+
+.PHONY: manifests
+manifests: controller-gen ## Regenerate the CRD (config/crd/podsequence-crd.yaml).
+	$(CONTROLLER_GEN) crd paths=./api/v1alpha1 output:crd:dir=./config/crd/.gen
+	mv ./config/crd/.gen/scheduling.example.com_podsequences.yaml ./config/crd/podsequence-crd.yaml
+	rm -rf ./config/crd/.gen
+
 ##@ Build
 
 .PHONY: build

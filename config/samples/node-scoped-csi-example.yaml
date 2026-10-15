@@ -1,6 +1,14 @@
-# Example: Node-level sequencing for CSI Driver dependencies
-# This example shows how to ensure CSI driver DaemonSet pods are ready
-# before application pods that need CSI volumes can start on each node
+# Example: CSI node driver (DaemonSet) must be Ready on a node before application pods
+# that use CSI volumes are scheduled to that node.
+#
+# - The DaemonSet and the Deployment opt in with the podsequence.example.com/sequence label.
+#   The webhook injects the scheduling gate; no schedulingGates are written by hand.
+# - CSI driver pods are pinned to their node by the DaemonSet controller, so group 0 is released
+#   immediately on every node.
+# - Application pods are not pinned (Deployment). The controller labels every node with
+#   podsequence.example.com/seq-<hash>=<satisfied groups> and releases each app pod with a required
+#   node affinity "seq-<hash> > 0", so the scheduler only places it on nodes whose CSI pod is Ready.
+#   The exact key is shown in `kubectl get podseq csi-driver-sequence -o jsonpath='{.status.nodeEligibilityKey}'`.
 
 apiVersion: scheduling.example.com/v1alpha1
 kind: PodSequence
@@ -8,7 +16,9 @@ metadata:
   name: csi-driver-sequence
   namespace: kube-system
 spec:
-  scope: Node  # Node-level sequencing
+  scope: Node
+  nodeEligibility:
+    method: NodeLabel  # default; only member pods are affected
   podGroups:
     - name: "CSI Driver"
       podSelector:
@@ -21,12 +31,13 @@ spec:
           app: myapp
           requires-csi: "true"
 ---
-# CSI Driver DaemonSet
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: csi-driver
   namespace: kube-system
+  labels:
+    podsequence.example.com/sequence: csi-driver-sequence
 spec:
   selector:
     matchLabels:
@@ -37,9 +48,8 @@ spec:
       labels:
         app: csi-driver
         component: node
+        podsequence.example.com/sequence: csi-driver-sequence
     spec:
-      schedulingGates:
-      - name: podsequence.example.com/sequence-gate
       containers:
       - name: csi-driver
         image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.9.0
@@ -68,8 +78,7 @@ spec:
           path: /var/lib/kubelet/plugins_registry
           type: Directory
 ---
-# Application Deployment that requires CSI
-# Pods will only start on each node after the CSI driver is ready on that node
+# Application pods are only scheduled onto nodes where the CSI driver pod is Ready.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -86,9 +95,8 @@ spec:
       labels:
         app: myapp
         requires-csi: "true"
+        podsequence.example.com/sequence: csi-driver-sequence
     spec:
-      schedulingGates:
-      - name: podsequence.example.com/sequence-gate
       containers:
       - name: app
         image: nginx:latest
@@ -103,4 +111,4 @@ spec:
           periodSeconds: 5
       volumes:
       - name: data
-        emptyDir: {}  # In real scenario, this would be a CSI volume
+        emptyDir: {}  # In a real scenario, this would be a CSI volume

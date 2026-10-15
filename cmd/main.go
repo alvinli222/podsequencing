@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	schedulingv1alpha1 "github.com/alvinli222/podsequencing/api/v1alpha1"
 	"github.com/alvinli222/podsequencing/internal/controller"
@@ -72,10 +73,10 @@ func main() {
 	}
 
 	if err = (&controller.PodSequenceReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		Recorder:       mgr.GetEventRecorderFor("pod-sequence-controller"),
-		WebhookEnabled: enableWebhook,
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		Recorder:         mgr.GetEventRecorderFor("pod-sequence-controller"),
+		NodeScopeEnabled: enableWebhook,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PodSequence")
 		os.Exit(1)
@@ -83,11 +84,13 @@ func main() {
 
 	// Setup webhook only if enabled
 	if enableWebhook {
-		setupLog.Info("setting up webhook for node-scoped sequencing")
+		setupLog.Info("setting up webhooks for scheduling gate injection and DaemonSet mutation")
+		decoder := admission.NewDecoder(mgr.GetScheme())
 		mgr.GetWebhookServer().Register("/mutate-v1-pod", &webhook.Admission{
-			Handler: &internalwebhook.PodSequenceMutator{
-				Client: mgr.GetClient(),
-			},
+			Handler: &internalwebhook.PodGateInjector{Client: mgr.GetClient(), Decoder: decoder},
+		})
+		mgr.GetWebhookServer().Register("/mutate-apps-v1-daemonset", &webhook.Admission{
+			Handler: &internalwebhook.DaemonSetMutator{Client: mgr.GetClient(), Decoder: decoder},
 		})
 	} else {
 		setupLog.Info("webhook disabled - node-scoped PodSequences will be rejected")
